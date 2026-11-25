@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Screen, TopBar, Button, Mascot, useToast } from '../components/ui'
 import AvatarPicker from '../components/AvatarPicker'
+import PushCard from '../components/PushCard'
 import Icon from '../components/Icon'
 import { useAuth } from '../auth'
 import { api } from '../lib/api'
@@ -76,6 +77,8 @@ export default function Profile() {
           </p>
         </div>
       </section>
+
+      <section className="px-5 mt-6"><PushCard compact /></section>
 
       <section className="px-5 mt-6">
         <button onClick={() => navigate('/change-password')} className="tap w-full card p-4 flex items-center gap-3 text-left">

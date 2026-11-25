@@ -124,6 +124,7 @@ export function groupStats(expenses, memberIds, meId) {
   return {
     total: fromCents(total),
     count: real.length,
+    settlementsCount: expenses.length - real.length,
     average: real.length ? fromCents(total / real.length) : 0,
     mySpend: fromCents(mySpend),
     myPaid: fromCents(myPaid),

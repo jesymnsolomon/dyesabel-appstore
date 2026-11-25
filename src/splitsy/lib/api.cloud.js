@@ -125,6 +125,13 @@ export const cloudApi = {
   async joinGroup(code) {
     return check(await supabase.rpc('splitsy_join', { code }))
   },
+  /** Only the group's creator can do this (enforced by the database). */
+  async deleteGroup(groupId) {
+    const me = await uid()
+    const { data, error } = await supabase.from(T.groups).delete().eq('id', groupId).eq('created_by', me).select('id')
+    if (error) throw new Error(error.message)
+    if (!data?.length) throw new Error('Only the person who created this group can delete it')
+  },
   async leaveGroup(groupId) {
     const me = await uid()
     check(await supabase.from(T.members).delete().eq('group_id', groupId).eq('user_id', me))
@@ -142,7 +149,9 @@ export const cloudApi = {
     const photos = []
     for (const f of files) photos.push(await uploadPhoto(f))
     const row = { ...payload, photos, ref: transactionRef(), created_by: me }
-    return check(await supabase.from(T.expenses).insert(row).select().single())
+    const saved = check(await supabase.from(T.expenses).insert(row).select().single())
+    cloudApi.sendPush(saved.id) // phone notifications for the rest of the group (best effort)
+    return saved
   },
   async addPhotos(expense, files) {
     const photos = [...(expense.photos || [])]
@@ -152,6 +161,45 @@ export const cloudApi = {
   async deleteExpense(id) {
     check(await supabase.from(T.expenses).delete().eq('id', id))
   },
+
+  // ---------- notifications ----------
+  async listNotifications() {
+    const me = await uid()
+    return check(
+      await supabase
+        .from('splitsy_notifications')
+        .select('*, actor:splitsy_profiles!splitsy_notifications_actor_id_fkey(id,name,avatar_url)')
+        .eq('user_id', me)
+        .order('created_at', { ascending: false })
+        .limit(80),
+    )
+  },
+  async markNotificationsRead(ids) {
+    const me = await uid()
+    let q = supabase.from('splitsy_notifications').update({ read_at: new Date().toISOString() }).eq('user_id', me).is('read_at', null)
+    if (ids?.length) q = q.in('id', ids)
+    check(await q)
+  },
+  /** Calls cb(notification) whenever a new one arrives for me. */
+  subscribeNotifications(userId, cb) {
+    const ch = supabase
+      .channel(`splitsy-notes-${userId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'splitsy_notifications', filter: `user_id=eq.${userId}` }, (p) => cb(p.new))
+      .subscribe()
+    return () => supabase.removeChannel(ch)
+  },
+  async savePushSubscription(sub) {
+    const me = await uid()
+    const j = sub.toJSON ? sub.toJSON() : sub
+    check(await supabase.from('splitsy_push_subscriptions').upsert({ endpoint: j.endpoint, user_id: me, p256dh: j.keys.p256dh, auth: j.keys.auth }))
+  },
+  async deletePushSubscription(endpoint) {
+    check(await supabase.from('splitsy_push_subscriptions').delete().eq('endpoint', endpoint))
+  },
+  sendPush(expenseId) {
+    supabase.functions.invoke('splitsy-notify', { body: { expense_id: expenseId } }).catch(() => {})
+  },
+  pushAvailable: Boolean(import.meta.env.VITE_VAPID_PUBLIC_KEY),
 
   // ---------- superadmin ----------
   async isAdmin() {

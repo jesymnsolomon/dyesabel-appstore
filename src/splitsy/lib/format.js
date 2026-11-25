@@ -57,3 +57,15 @@ export function greeting() {
 }
 
 export const firstName = (name = '') => name.trim().split(/\s+/)[0] || 'friend'
+
+/** "just now", "5m", "3h", "Yesterday", "Mon", "Nov 12" */
+export function timeAgo(iso) {
+  const d = new Date(iso)
+  const sec = (Date.now() - d.getTime()) / 1000
+  if (sec < 60) return 'just now'
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`
+  if (sec < 172800) return 'Yesterday'
+  if (sec < 604800) return d.toLocaleDateString(undefined, { weekday: 'short' })
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}

@@ -14,6 +14,8 @@ import AddExpense from './screens/AddExpense'
 import ExpenseDetail from './screens/ExpenseDetail'
 import Profile from './screens/Profile'
 import Admin from './screens/Admin'
+import Notifications from './screens/Notifications'
+import { NotificationsProvider } from './notifications'
 import ForgotPassword from './screens/ForgotPassword'
 import ResetPassword, { ChangePassword } from './screens/ResetPassword'
 
@@ -50,6 +52,7 @@ function Router() {
   }
 
   if (path === '/admin') return <Admin />
+  if (path === '/notifications') return <Notifications />
   if (path === '/change-password') return <ChangePassword />
   if (path === '/new-group') return <CreateGroup />
   if (path === '/profile') return <Profile />
@@ -64,7 +67,9 @@ export default function App() {
   return (
     <AuthProvider>
       <ToastProvider>
-        <Router />
+        <NotificationsProvider>
+          <Router />
+        </NotificationsProvider>
       </ToastProvider>
     </AuthProvider>
   )

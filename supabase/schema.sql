@@ -239,3 +239,88 @@ begin
   end if;
 end $$;
 grant execute on function public.splitsy_admin_set(uuid, boolean) to authenticated;
+
+-- ============================================================
+-- Notifications
+-- When someone adds a transaction (or settles up), everyone else in the
+-- group gets a notification. Created by the database itself, so it works
+-- no matter which phone added the bill.
+-- ============================================================
+create table if not exists public.splitsy_notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.splitsy_profiles(id) on delete cascade,   -- who receives it
+  actor_id uuid references public.splitsy_profiles(id) on delete set null,          -- who did it
+  group_id uuid references public.splitsy_groups(id) on delete cascade,
+  expense_id uuid references public.splitsy_expenses(id) on delete cascade,
+  kind text not null default 'expense',          -- 'expense' | 'settlement'
+  title text not null,
+  body text not null,
+  share numeric(14,2),                           -- the receiver's share of the bill
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists splitsy_notifications_user_idx on public.splitsy_notifications (user_id, created_at desc);
+alter table public.splitsy_notifications enable row level security;
+
+drop policy if exists "notifications read own" on public.splitsy_notifications;
+create policy "notifications read own" on public.splitsy_notifications for select to authenticated using (user_id = auth.uid());
+drop policy if exists "notifications update own" on public.splitsy_notifications;
+create policy "notifications update own" on public.splitsy_notifications for update to authenticated using (user_id = auth.uid());
+drop policy if exists "notifications delete own" on public.splitsy_notifications;
+create policy "notifications delete own" on public.splitsy_notifications for delete to authenticated using (user_id = auth.uid());
+
+create or replace function public.splitsy_notify_expense()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  actor text;
+  grp text;
+  cur text;
+  m record;
+  my_share numeric;
+  amt text;
+begin
+  select name into actor from splitsy_profiles where id = new.created_by;
+  select name, currency into grp, cur from splitsy_groups where id = new.group_id;
+  amt := cur || ' ' || to_char(new.amount, 'FM999,999,990.00');
+  for m in select user_id from splitsy_members where group_id = new.group_id and user_id <> new.created_by loop
+    select coalesce(sum((s->>'amount')::numeric), 0) into my_share
+      from jsonb_array_elements(new.splits) s where s->>'user_id' = m.user_id::text;
+    insert into splitsy_notifications (user_id, actor_id, group_id, expense_id, kind, title, body, share)
+    values (
+      m.user_id, new.created_by, new.group_id, new.id, new.kind,
+      case when new.kind = 'settlement' then coalesce(actor, 'Someone') || ' settled up in ' || grp
+           else coalesce(actor, 'Someone') || ' added ' || new.title end,
+      case when new.kind = 'settlement' then new.title || ' · ' || amt
+           else amt || ' in ' || grp end,
+      nullif(my_share, 0)
+    );
+  end loop;
+  return new;
+end $$;
+drop trigger if exists splitsy_expense_notify on public.splitsy_expenses;
+create trigger splitsy_expense_notify
+  after insert on public.splitsy_expenses for each row execute function public.splitsy_notify_expense();
+
+do $$ begin
+  alter publication supabase_realtime add table public.splitsy_notifications;
+exception when duplicate_object then null; end $$;
+
+-- Phone push notifications (Web Push). One row per phone/browser that turned them on.
+create table if not exists public.splitsy_push_subscriptions (
+  endpoint text primary key,
+  user_id uuid not null references public.splitsy_profiles(id) on delete cascade,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.splitsy_push_subscriptions enable row level security;
+drop policy if exists "push subs own" on public.splitsy_push_subscriptions;
+create policy "push subs own" on public.splitsy_push_subscriptions for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- ============================================================
+-- Deleting a group: only the person who created it can delete it.
+-- Members, bills and notifications are removed with it (on delete cascade).
+-- ============================================================
+drop policy if exists "groups delete own" on public.splitsy_groups;
+create policy "groups delete own" on public.splitsy_groups for delete to authenticated using (created_by = auth.uid());

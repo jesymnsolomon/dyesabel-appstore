@@ -44,6 +44,27 @@ async function hash(s) {
 const listeners = new Set()
 const emit = (user) => listeners.forEach((cb) => cb(user))
 const groupListeners = new Map()
+const noteListeners = new Set()
+
+// Same as the database trigger in schema.sql: one notification per other member
+function addNotifications(db, e) {
+  const actor = db.users.find((u) => u.id === e.created_by)
+  const g = db.groups.find((x) => x.id === e.group_id)
+  if (!g) return
+  const amt = `${g.currency} ${Number(e.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  db.notifications = db.notifications || []
+  for (const m of db.members.filter((x) => x.group_id === e.group_id && x.user_id !== e.created_by)) {
+    const share = (e.splits || []).filter((s) => s.user_id === m.user_id).reduce((t, s) => t + Number(s.amount), 0)
+    const n = {
+      id: uuid(), user_id: m.user_id, actor_id: e.created_by, group_id: e.group_id, expense_id: e.id, kind: e.kind || 'expense',
+      title: e.kind === 'settlement' ? `${actor?.name || 'Someone'} settled up in ${g.name}` : `${actor?.name || 'Someone'} added ${e.title}`,
+      body: e.kind === 'settlement' ? `${e.title} · ${amt}` : `${amt} in ${g.name}`,
+      share: share || null, read_at: null, created_at: new Date().toISOString(),
+    }
+    db.notifications.push(n)
+    setTimeout(() => noteListeners.forEach((cb) => cb(n)), 0)
+  }
+}
 const ping = (gid) => groupListeners.get(gid)?.forEach((cb) => cb())
 
 const me = () => localStorage.getItem(SESSION)
@@ -185,6 +206,18 @@ export const demoApi = {
     }
     return g.id
   },
+  async deleteGroup(gid) {
+    const db = await load()
+    const g = db.groups.find((x) => x.id === gid)
+    if (!g) throw new Error('Group not found')
+    if (g.created_by !== requireMe()) throw new Error('Only the person who created this group can delete it')
+    db.groups = db.groups.filter((x) => x.id !== gid)
+    db.members = db.members.filter((m) => m.group_id !== gid)
+    const gone = new Set(db.expenses.filter((e) => e.group_id === gid).map((e) => e.id))
+    db.expenses = db.expenses.filter((e) => e.group_id !== gid)
+    db.notifications = (db.notifications || []).filter((n) => n.group_id !== gid && !gone.has(n.expense_id))
+    await save(db)
+  },
   async leaveGroup(gid) {
     const db = await load()
     const id = requireMe()
@@ -208,6 +241,7 @@ export const demoApi = {
     const db = await load()
     const e = { kind: 'expense', ...payload, id: uuid(), ref: transactionRef(), photos, created_by: requireMe(), created_at: new Date().toISOString() }
     db.expenses.push(e)
+    addNotifications(db, e)
     await save(db)
     ping(e.group_id)
     return e
@@ -228,6 +262,33 @@ export const demoApi = {
     await save(db)
     if (e) ping(e.group_id)
   },
+  // ---------- notifications (demo: kept on this device) ----------
+  async listNotifications() {
+    const db = await load()
+    const id = requireMe()
+    return (db.notifications || [])
+      .filter((n) => n.user_id === id)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 80)
+      .map((n) => ({ ...n, actor: publicUser(db.users.find((u) => u.id === n.actor_id)) }))
+  },
+  async markNotificationsRead(ids) {
+    const db = await load()
+    const id = requireMe()
+    const now = new Date().toISOString()
+    for (const n of db.notifications || []) if (n.user_id === id && !n.read_at && (!ids?.length || ids.includes(n.id))) n.read_at = now
+    await save(db)
+  },
+  subscribeNotifications(userId, cb) {
+    const fn = (n) => n.user_id === userId && cb(n)
+    noteListeners.add(fn)
+    return () => noteListeners.delete(fn)
+  },
+  async savePushSubscription() {},
+  async deletePushSubscription() {},
+  sendPush() {},
+  pushAvailable: false,
+
   // ---------- superadmin (demo: the first account on this device, or emails in VITE_SPLITSY_ADMIN_EMAILS) ----------
   async isAdmin() {
     const db = await load()

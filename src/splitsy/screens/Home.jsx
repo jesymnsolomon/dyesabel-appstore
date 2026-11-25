@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { navigate } from '../lib/router'
 import { greeting, firstName, money } from '../lib/format'
 import { CurrencyPicker, CurrencyChip, useRates, useViewCurrency } from '../components/CurrencyPicker'
+import { useNotifications } from '../notifications'
 import { rateBetween } from '../lib/currency'
 
 export default function Home() {
@@ -13,6 +14,7 @@ export default function Home() {
   const [groups, setGroups] = useState(null)
   const [joinOpen, setJoinOpen] = useState(false)
   const [curPicker, setCurPicker] = useState(false)
+  const { unread } = useNotifications()
   const [homeCur, setHomeCur] = useViewCurrency('home', null)
   const toast = useToast()
 
@@ -43,9 +45,15 @@ export default function Home() {
           <img src="/apps/splitsy/logo.svg" alt="" className="w-10 h-9 object-contain" />
           <span className="font-display font-extrabold text-[22px] tracking-tight">Splitsy</span>
         </div>
-        <button className="tap" onClick={() => navigate('/profile')} aria-label="Profile">
-          <Avatar user={user} size={44} ring />
-        </button>
+        <div className="flex items-center gap-2">
+          <button className="tap relative w-11 h-11 rounded-full bg-white shadow-card grid place-items-center" onClick={() => navigate('/notifications')} aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}>
+            <Icon name="bell" size={20} />
+            {unread > 0 && <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-pink text-white text-[11px] font-bold grid place-items-center ring-2 ring-cream">{unread > 9 ? '9+' : unread}</span>}
+          </button>
+          <button className="tap" onClick={() => navigate('/profile')} aria-label="Profile">
+            <Avatar user={user} size={44} ring />
+          </button>
+        </div>
       </header>
 
       <section className="px-5 mt-6 animate-rise">

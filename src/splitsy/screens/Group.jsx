@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Screen, Mascot, Avatar, AvatarStack, Button, Sheet, Segmented, Empty, useToast } from '../components/ui'
+import { Screen, Mascot, Avatar, AvatarStack, Button, Sheet, Segmented, Empty, MASCOTS, useToast } from '../components/ui'
 import Icon from '../components/Icon'
 import { useAuth } from '../auth'
 import { api } from '../lib/api'
@@ -8,6 +8,7 @@ import { groupStats } from '../lib/balances'
 import { catInfo } from '../lib/categories'
 import { money, firstName, relDay } from '../lib/format'
 import { shareInvite } from './Invite'
+import { useNotifications } from '../notifications'
 import { CurrencyPicker, CurrencyChip, useRates, useViewCurrency } from '../components/CurrencyPicker'
 import { rateBetween, formatRate } from '../lib/currency'
 
@@ -18,6 +19,7 @@ export default function Group({ groupId }) {
   const [expenses, setExpenses] = useState(null)
   const [settle, setSettle] = useState(null)
   const [tab, setTab] = useState('overview')
+  const [menu, setMenu] = useState(false)
   const [viewCur, setViewCur] = useViewCurrency(`group-${groupId}`, null)
   const [curPicker, setCurPicker] = useState(false)
   const gc = group?.currency
@@ -74,6 +76,7 @@ export default function Group({ groupId }) {
           <button onClick={() => back('/')} className="tap w-10 h-10 rounded-full bg-white shadow-card grid place-items-center" aria-label="Back"><Icon name="back" /></button>
           <h1 className="flex-1 font-display font-bold text-[18px] truncate">{group.name}</h1>
           <button onClick={() => shareInvite(group, toast)} className="tap h-10 px-4 rounded-full bg-ink text-white font-bold text-[13px] flex items-center gap-1.5"><Icon name="plus" size={16} stroke={2.8} /> Invite</button>
+          <button onClick={() => setMenu(true)} className="tap w-10 h-10 rounded-full bg-white shadow-card grid place-items-center" aria-label="Group options"><Icon name="more" size={20} /></button>
         </div>
       </div>
 
@@ -139,6 +142,7 @@ export default function Group({ groupId }) {
       </div>
 
       <CurrencyPicker open={curPicker} onClose={() => setCurPicker(false)} value={showCur} onPick={setViewCur} title="Show amounts in…" note={`Display only. The group still keeps its balances in ${cur}.`} />
+      <GroupMenu open={menu} onClose={() => setMenu(false)} group={group} stats={stats} meId={user.id} cur={cur} byId={byId} onInvite={() => { setMenu(false); shareInvite(group, toast) }} />
       <SettleSheet debt={settle} group={group} cur={cur} nameOf={nameOf} byId={byId} onClose={() => setSettle(null)} onDone={() => { setSettle(null); load() }} />
     </Screen>
   )
@@ -371,6 +375,94 @@ function SettleSheet({ debt, group, cur, nameOf, byId, onClose, onDone }) {
       </div>
       <Button variant="grad" className="w-full mt-5 mb-2" loading={busy} onClick={confirm}>Yes, mark as paid</Button>
     </Sheet>
+  )
+}
+
+// ---------------- Group options: invite, leave, delete ----------------
+function GroupMenu({ open, onClose, group, stats, meId, cur, byId, onInvite }) {
+  const [confirm, setConfirm] = useState(null) // 'delete' | 'leave'
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  const { refresh: refreshNotes } = useNotifications()
+  const owner = group.created_by === meId
+  const net = stats.net[meId] || 0
+  const bills = stats.count + (stats.settlementsCount || 0)
+
+  const close = () => { setConfirm(null); onClose() }
+  const run = async () => {
+    setBusy(true)
+    try {
+      if (confirm === 'delete') {
+        await api.deleteGroup(group.id)
+        toast(`Deleted ${group.name}`)
+      } else {
+        await api.leaveGroup(group.id)
+        toast(`You left ${group.name}`)
+      }
+      close()
+      refreshNotes()
+      navigate('/', { replace: true })
+    } catch (e) {
+      toast(e.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Sheet open={open} onClose={close}>
+      {!confirm && (
+        <div className="pb-2">
+          <div className="flex items-center gap-3 mb-4">
+            <span className="w-12 h-12 rounded-2xl grid place-items-center shrink-0" style={{ background: MASCOTS[group.mascot]?.bg || MASCOTS.buddy.bg }}>
+              <img src={`/apps/splitsy/mascots/${MASCOTS[group.mascot] ? group.mascot : 'buddy'}.png`} alt="" className="w-[72%] max-h-[76%] object-contain" />
+            </span>
+            <div className="min-w-0">
+              <p className="font-display font-bold text-[19px] truncate">{group.name}</p>
+              <p className="text-[13px] font-semibold text-ink-soft">Created by {owner ? 'you' : byId(group.created_by).name} · {group.members.length} members</p>
+            </div>
+          </div>
+          <div className="card divide-y divide-line overflow-hidden">
+            <MenuRow icon="share" label="Share invite link" onClick={onInvite} />
+            {!owner && <MenuRow icon="logout" label="Leave group" onClick={() => setConfirm('leave')} />}
+            {owner && <MenuRow icon="trash" label="Delete group" danger onClick={() => setConfirm('delete')} />}
+          </div>
+          {!owner && <p className="text-[12px] font-semibold text-ink-faint mt-3 px-1">Only {byId(group.created_by).name} can delete this group.</p>}
+        </div>
+      )}
+
+      {confirm && (
+        <div className="pb-2 text-center">
+          <span className="w-16 h-16 rounded-full bg-[#fdecec] text-red grid place-items-center mx-auto"><Icon name={confirm === 'delete' ? 'trash' : 'logout'} size={28} /></span>
+          <h3 className="font-display font-bold text-[22px] mt-3">{confirm === 'delete' ? <>Delete “{group.name}”?</> : <>Leave “{group.name}”?</>}</h3>
+          <p className="text-ink-soft font-medium mt-1.5 text-[14px]">
+            {confirm === 'delete'
+              ? <>This removes the group for <b className="text-ink">all {group.members.length} members</b>, including {bills} {bills === 1 ? 'bill' : 'bills'} and every balance. This can’t be undone.</>
+              : 'You won’t see this group anymore. Your past bills stay in the group for the others.'}
+          </p>
+          {Math.abs(net) >= 0.01 && (
+            <div className="mt-4 rounded-2xl bg-[#FFF7D6] px-4 py-3 text-[13px] font-semibold text-left flex items-start gap-2">
+              <Icon name="alert" size={16} className="text-[#E0A800] shrink-0 mt-0.5" />
+              <span>{net > 0 ? `You’re still owed ${money(net, cur, { decimals: true })}.` : `You still owe ${money(-net, cur, { decimals: true })}.`} You may want to settle up first.</span>
+            </div>
+          )}
+          <div className="flex gap-2 mt-5">
+            <Button variant="soft" className="flex-1" onClick={() => setConfirm(null)}>Cancel</Button>
+            <Button variant="danger" className="flex-1 !bg-red !text-white" loading={busy} onClick={run}>{confirm === 'delete' ? 'Delete group' : 'Leave group'}</Button>
+          </div>
+        </div>
+      )}
+    </Sheet>
+  )
+}
+
+function MenuRow({ icon, label, onClick, danger }) {
+  return (
+    <button onClick={onClick} className={`tap w-full flex items-center gap-3 px-4 py-3.5 text-left font-bold text-[15px] ${danger ? 'text-red' : ''}`}>
+      <span className={`w-9 h-9 rounded-xl grid place-items-center ${danger ? 'bg-[#fdecec]' : 'bg-cream'}`}><Icon name={icon} size={18} /></span>
+      <span className="flex-1">{label}</span>
+      <Icon name="chevron" size={18} className="text-ink-faint" />
+    </button>
   )
 }
 

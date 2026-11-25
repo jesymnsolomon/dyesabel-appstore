@@ -57,6 +57,25 @@ With no Supabase keys it runs in **Demo mode**: everything works, but it's saved
 
 ---
 
+## Notifications
+
+When someone adds a transaction or settles up, **everyone else in the group** is notified:
+
+- **In the app (works as soon as Supabase is connected):** bell on the home screen with an unread count, a notifications list (tap to open the transaction), and a pop-up message when one arrives while Splitsy is open. The database creates the notifications itself (see `schema.sql`), so it works no matter whose phone added the bill.
+- **Phone push notifications (even when Splitsy is closed):** one-time setup:
+  1. Run `supabase/schema.sql` again (adds the notifications tables).
+  2. Make a key pair (free): `npx web-push generate-vapid-keys`
+  3. Put the **public** key in `.env` (and in Vercel's environment variables):
+     ```
+     VITE_VAPID_PUBLIC_KEY=BPx...your public key
+     ```
+  4. In Supabase → **Edge Functions** → **Deploy a new function** → name it `splitsy-notify` → paste the code from `supabase/functions/splitsy-notify/index.ts` → Deploy.
+     (Or with the CLI: `npx supabase functions deploy splitsy-notify`.)
+  5. Supabase → **Edge Functions → Secrets**, add:
+     `VAPID_PUBLIC_KEY` (public key), `VAPID_PRIVATE_KEY` (private key, keep it secret, never put it in `.env`), `VAPID_SUBJECT` = `mailto:you@example.com`
+  6. Deploy the app, open it on your phone, and go to **Profile → Turn on notifications**.
+     On iPhone, first add Splitsy to the Home Screen and open it from there (Apple only allows web notifications for Home Screen apps, iOS 16.4+).
+
 ## Superadmin dashboard
 
 Open **Profile → Superadmin dashboard** (or go to `/splitsy/#/admin`). Only superadmins can see it.
