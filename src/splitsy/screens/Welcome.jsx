@@ -10,7 +10,7 @@ export default function Welcome() {
         <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'radial-gradient(circle at 20% 15%, #fff 0 2px, transparent 3px), radial-gradient(circle at 80% 30%, #fff 0 2px, transparent 3px), radial-gradient(circle at 60% 80%, #fff 0 2px, transparent 3px)', backgroundSize: '120px 120px' }} />
         <Mascot name="sun" size={92} className="absolute left-3 top-8" style={{ animationDelay: '.3s' }} />
         <Mascot name="heart" size={84} className="absolute right-4 top-12" style={{ animationDelay: '.9s' }} />
-        <div className="absolute inset-0 grid place-items-center"><Mascot name="buddy" size={150} /></div>
+        <div className="absolute inset-0 grid place-items-center"><img src="/apps/splitsy/logo.svg" alt="Splitsy" className="w-[44%] max-w-[200px] mt-6 animate-float drop-shadow-[0_14px_18px_rgba(22,19,28,0.18)]" /></div>
         <Mascot name="strawberry" size={78} className="absolute left-3 bottom-4" style={{ animationDelay: '1.4s' }} />
         <Mascot name="icecream" size={66} className="absolute right-6 bottom-6" style={{ animationDelay: '.6s' }} />
         <img src="/apps/splitsy/mascots/stars.png" alt="" className="absolute right-[38%] top-[22%] w-12 animate-wiggle" />

@@ -176,3 +176,66 @@ exception when duplicate_object then null; end $$;
 do $$ begin
   alter publication supabase_realtime add table public.splitsy_members;
 exception when duplicate_object then null; end $$;
+
+-- ============================================================
+-- Superadmin dashboard
+-- Make yourself the first superadmin (replace the email), run once:
+--   insert into public.splitsy_admins (user_id)
+--   select id from auth.users where email = 'you@example.com';
+-- After that you can add/remove other admins from the dashboard.
+-- ============================================================
+create table if not exists public.splitsy_admins (
+  user_id uuid primary key references public.splitsy_profiles(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+alter table public.splitsy_admins enable row level security;
+
+create or replace function public.splitsy_is_admin()
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (select 1 from splitsy_admins where user_id = auth.uid());
+$$;
+grant execute on function public.splitsy_is_admin() to authenticated;
+
+drop policy if exists "admins read" on public.splitsy_admins;
+create policy "admins read" on public.splitsy_admins for select to authenticated
+  using (public.splitsy_is_admin() or user_id = auth.uid());
+
+-- Superadmins can see (and remove) everything
+drop policy if exists "admin read groups" on public.splitsy_groups;
+create policy "admin read groups" on public.splitsy_groups for select to authenticated using (public.splitsy_is_admin());
+drop policy if exists "admin delete groups" on public.splitsy_groups;
+create policy "admin delete groups" on public.splitsy_groups for delete to authenticated using (public.splitsy_is_admin());
+drop policy if exists "admin read members" on public.splitsy_members;
+create policy "admin read members" on public.splitsy_members for select to authenticated using (public.splitsy_is_admin());
+drop policy if exists "admin read expenses" on public.splitsy_expenses;
+create policy "admin read expenses" on public.splitsy_expenses for select to authenticated using (public.splitsy_is_admin());
+drop policy if exists "admin delete expenses" on public.splitsy_expenses;
+create policy "admin delete expenses" on public.splitsy_expenses for delete to authenticated using (public.splitsy_is_admin());
+
+-- Users with their email + last sign-in (emails live in auth.users, so this is admin-only)
+create or replace function public.splitsy_admin_users()
+returns table (id uuid, name text, avatar_url text, email text, created_at timestamptz, last_sign_in_at timestamptz, is_admin boolean)
+language plpgsql security definer stable set search_path = public as $$
+begin
+  if not splitsy_is_admin() then raise exception 'Superadmins only'; end if;
+  return query
+    select p.id, p.name, p.avatar_url, u.email::text, p.created_at, u.last_sign_in_at,
+           exists (select 1 from splitsy_admins a where a.user_id = p.id)
+    from splitsy_profiles p join auth.users u on u.id = p.id
+    order by p.created_at desc;
+end $$;
+grant execute on function public.splitsy_admin_users() to authenticated;
+
+-- Add or remove a superadmin
+create or replace function public.splitsy_admin_set(target uuid, make_admin boolean)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not splitsy_is_admin() then raise exception 'Superadmins only'; end if;
+  if not make_admin and target = auth.uid() then raise exception 'You can’t remove your own superadmin access'; end if;
+  if make_admin then
+    insert into splitsy_admins (user_id) values (target) on conflict do nothing;
+  else
+    delete from splitsy_admins where user_id = target;
+  end if;
+end $$;
+grant execute on function public.splitsy_admin_set(uuid, boolean) to authenticated;

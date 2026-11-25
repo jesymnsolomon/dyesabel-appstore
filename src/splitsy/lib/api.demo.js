@@ -3,7 +3,7 @@
  * device (IndexedDB). Used automatically when no Supabase keys are set, so the
  * app can be tried instantly. Invite links only work on the same device here.
  */
-import { compressImage, blobToDataURL } from './image'
+import { compressImage, compressAvatar, isCompressed, blobToDataURL } from './image'
 import { inviteCode, transactionRef, uuid } from './id'
 
 const DB_NAME = 'splitsy-demo'
@@ -47,8 +47,15 @@ const groupListeners = new Map()
 const ping = (gid) => groupListeners.get(gid)?.forEach((cb) => cb())
 
 const me = () => localStorage.getItem(SESSION)
+const ADMIN_EMAILS = (import.meta.env?.VITE_SPLITSY_ADMIN_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean)
+function isAdminIn(db, id) {
+  const u = db.users.find((x) => x.id === id)
+  if (!u || (db.removedAdmins || []).includes(id)) return false
+  return db.users[0]?.id === id || (db.admins || []).includes(id) || ADMIN_EMAILS.includes(u.email)
+}
 const publicUser = (u) => u && { id: u.id, name: u.name, email: u.email, avatar_url: u.avatar_url }
-const photo = async (file, size = 1000) => blobToDataURL(await compressImage(file, size, 0.75))
+const photo = async (file, size = 1000) => blobToDataURL(isCompressed(file) ? file : await compressImage(file, size, 0.75))
+const avatarPhoto = async (file) => blobToDataURL(isCompressed(file) ? file : await compressAvatar(file, 400, 0.8))
 const wait = (ms = 250) => new Promise((r) => setTimeout(r, ms))
 
 function requireMe() {
@@ -73,7 +80,7 @@ export const demoApi = {
     const db = await load()
     const e = email.trim().toLowerCase()
     if (db.users.some((u) => u.email === e)) throw new Error('That email already has an account — try signing in.')
-    const u = { id: uuid(), name, email: e, pass: await hash(password), avatar_url: avatarFile ? await photo(avatarFile, 400) : null }
+    const u = { id: uuid(), created_at: new Date().toISOString(), last_sign_in_at: new Date().toISOString(), name, email: e, pass: await hash(password), avatar_url: avatarFile ? await avatarPhoto(avatarFile) : null }
     db.users.push(u)
     await save(db)
     localStorage.setItem(SESSION, u.id)
@@ -85,6 +92,8 @@ export const demoApi = {
     const db = await load()
     const u = db.users.find((x) => x.email === email.trim().toLowerCase())
     if (!u || u.pass !== (await hash(password))) throw new Error('Wrong email or password')
+    u.last_sign_in_at = new Date().toISOString()
+    await save(db)
     localStorage.setItem(SESSION, u.id)
     emit(publicUser(u))
     return publicUser(u)
@@ -97,7 +106,7 @@ export const demoApi = {
     const db = await load()
     const u = db.users.find((x) => x.id === requireMe())
     if (name) u.name = name
-    if (avatarFile) u.avatar_url = await photo(avatarFile, 400)
+    if (avatarFile) u.avatar_url = await avatarPhoto(avatarFile)
     await save(db)
     emit(publicUser(u))
     return publicUser(u)
@@ -194,6 +203,46 @@ export const demoApi = {
     await save(db)
     if (e) ping(e.group_id)
   },
+  // ---------- superadmin (demo: the first account on this device, or emails in VITE_SPLITSY_ADMIN_EMAILS) ----------
+  async isAdmin() {
+    const db = await load()
+    return isAdminIn(db, me())
+  },
+  async adminData() {
+    const db = await load()
+    if (!isAdminIn(db, me())) throw new Error('Superadmins only')
+    return {
+      users: db.users.map((u) => ({ ...publicUser(u), created_at: u.created_at || null, last_sign_in_at: u.last_sign_in_at || null, is_admin: isAdminIn(db, u.id) })),
+      groups: db.groups,
+      members: db.members,
+      expenses: db.expenses,
+    }
+  },
+  async adminDeleteGroup(gid) {
+    const db = await load()
+    if (!isAdminIn(db, me())) throw new Error('Superadmins only')
+    db.groups = db.groups.filter((g) => g.id !== gid)
+    db.members = db.members.filter((m) => m.group_id !== gid)
+    db.expenses = db.expenses.filter((e) => e.group_id !== gid)
+    await save(db)
+  },
+  async adminDeleteExpense(id) {
+    const db = await load()
+    if (!isAdminIn(db, me())) throw new Error('Superadmins only')
+    db.expenses = db.expenses.filter((e) => e.id !== id)
+    await save(db)
+  },
+  async adminSetAdmin(userId, makeAdmin) {
+    const db = await load()
+    if (!isAdminIn(db, me())) throw new Error('Superadmins only')
+    if (!makeAdmin && userId === me()) throw new Error('You can’t remove your own superadmin access')
+    db.admins = (db.admins || []).filter((id) => id !== userId)
+    db.removedAdmins = (db.removedAdmins || []).filter((id) => id !== userId)
+    if (makeAdmin) db.admins.push(userId)
+    else db.removedAdmins.push(userId)
+    await save(db)
+  },
+
   subscribe(gid, cb) {
     if (!groupListeners.has(gid)) groupListeners.set(gid, new Set())
     groupListeners.get(gid).add(cb)

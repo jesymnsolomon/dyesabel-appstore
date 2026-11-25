@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { AuthProvider, useAuth, takePendingJoin } from './auth'
 import { useRoute, match, navigate } from './lib/router'
-import { ToastProvider, Mascot } from './components/ui'
+import { ToastProvider } from './components/ui'
 import Welcome from './screens/Welcome'
 import SignUp from './screens/SignUp'
 import SignIn from './screens/SignIn'
@@ -13,6 +13,7 @@ import Group from './screens/Group'
 import AddExpense from './screens/AddExpense'
 import ExpenseDetail from './screens/ExpenseDetail'
 import Profile from './screens/Profile'
+import Admin from './screens/Admin'
 
 function Router() {
   const { user, ready } = useAuth()
@@ -28,7 +29,7 @@ function Router() {
   if (!ready) {
     return (
       <div className="min-h-[100dvh] grid place-items-center">
-        <Mascot name="buddy" size={110} />
+        <img src="/apps/splitsy/logo.svg" alt="Splitsy" className="w-28 animate-float" />
       </div>
     )
   }
@@ -42,6 +43,7 @@ function Router() {
     return <Welcome />
   }
 
+  if (path === '/admin') return <Admin />
   if (path === '/new-group') return <CreateGroup />
   if (path === '/profile') return <Profile />
   if ((m = match('/group/:id/add', path))) return <AddExpense groupId={m.id} key={path} />

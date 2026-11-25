@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { compressImage } from './image'
+import { compressImage, compressAvatar, isCompressed } from './image'
 import { inviteCode, transactionRef, uuid } from './id'
 
 const T = { profiles: 'splitsy_profiles', groups: 'splitsy_groups', members: 'splitsy_members', expenses: 'splitsy_expenses' }
@@ -18,7 +18,7 @@ async function uid() {
 
 async function uploadPhoto(file, folder = 'photos') {
   const me = await uid()
-  const blob = await compressImage(file, folder === 'avatars' ? 512 : 1280)
+  const blob = isCompressed(file) ? file : folder === 'avatars' ? await compressAvatar(file) : await compressImage(file, 1280)
   const path = `${me}/${folder}/${uuid()}.jpg`
   check(await supabase.storage.from('splitsy').upload(path, blob, { contentType: 'image/jpeg', upsert: false }))
   return supabase.storage.from('splitsy').getPublicUrl(path).data.publicUrl
@@ -139,6 +139,39 @@ export const cloudApi = {
   },
   async deleteExpense(id) {
     check(await supabase.from(T.expenses).delete().eq('id', id))
+  },
+
+  // ---------- superadmin ----------
+  async isAdmin() {
+    const { data, error } = await supabase.rpc('splitsy_is_admin')
+    return !error && data === true
+  },
+  async adminData() {
+    const fetchAll = async (table, columns, order = 'created_at') => {
+      const rows = []
+      for (let from = 0; ; from += 1000) {
+        const page = check(await supabase.from(table).select(columns).order(order, { ascending: false }).range(from, from + 999))
+        rows.push(...page)
+        if (page.length < 1000) break
+      }
+      return rows
+    }
+    const [users, groups, members, expenses] = await Promise.all([
+      supabase.rpc('splitsy_admin_users').then(check),
+      fetchAll(T.groups, '*'),
+      fetchAll(T.members, 'group_id, user_id, joined_at', 'joined_at'),
+      fetchAll(T.expenses, 'id, ref, group_id, kind, title, category, amount, paid_by, created_by, payment_method, channel, place_name, original_currency, original_amount, items, photos, created_at'),
+    ])
+    return { users, groups, members, expenses }
+  },
+  async adminDeleteGroup(id) {
+    check(await supabase.from(T.groups).delete().eq('id', id))
+  },
+  async adminDeleteExpense(id) {
+    check(await supabase.from(T.expenses).delete().eq('id', id))
+  },
+  async adminSetAdmin(userId, makeAdmin) {
+    check(await supabase.rpc('splitsy_admin_set', { target: userId, make_admin: makeAdmin }))
   },
 
   /** Live updates: calls cb() whenever this group's expenses/members change. */

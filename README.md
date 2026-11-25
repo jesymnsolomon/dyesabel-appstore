@@ -51,6 +51,23 @@ With no Supabase keys it runs in **Demo mode**: everything works, but it's saved
 
 ---
 
+## Superadmin dashboard
+
+Open **Profile → Superadmin dashboard** (or go to `/splitsy/#/admin`). Only superadmins can see it.
+
+- **Overview:** users, active users, groups, transactions, total volume (converted into one currency), average bill, receipts scanned, settle-ups; 30-day charts; spending by category; cash vs card; online vs in person; top groups and top spenders
+- **Users:** search by name or email, sort by newest, recently active or top payers; open a user to see their groups and **make or remove superadmins**
+- **Groups:** search by name, owner or invite code; see members and totals; open or **delete** a group
+- **Transactions:** search by ID (`SPL-…`), title, group, payer or place; filter by receipts, foreign currency or settle-ups; tap to open
+
+**Who is a superadmin?**
+- With Supabase: run this once in the SQL Editor with your email, then add others from the dashboard:
+  ```sql
+  insert into public.splitsy_admins (user_id) select id from auth.users where email = 'you@example.com';
+  ```
+  Admin access is checked by the database (row-level security), not just hidden in the app.
+- In Demo mode: the first account created on the phone, plus any emails in `VITE_SPLITSY_ADMIN_EMAILS`.
+
 ## What Splitsy does
 
 - **Accounts**: name → selfie (front camera) → email + password.

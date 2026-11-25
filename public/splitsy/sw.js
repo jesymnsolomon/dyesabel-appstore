@@ -1,5 +1,5 @@
 // Minimal service worker for Splitsy: makes it installable and caches the app shell.
-const CACHE = 'splitsy-v1'
+const CACHE = 'splitsy-v2'
 const SHELL = ['/splitsy/', '/apps/splitsy/icon-192.png', '/apps/splitsy/icon-512.png']
 
 self.addEventListener('install', (e) => {

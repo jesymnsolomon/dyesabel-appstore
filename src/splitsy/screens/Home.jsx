@@ -40,7 +40,7 @@ export default function Home() {
     <Screen className="pb-28">
       <header className="safe-top px-5 pt-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <img src="/apps/splitsy/icon-192.png" alt="" className="w-9 h-9 rounded-xl" />
+          <img src="/apps/splitsy/logo.svg" alt="" className="w-10 h-9 object-contain" />
           <span className="font-display font-extrabold text-[22px] tracking-tight">Splitsy</span>
         </div>
         <button className="tap" onClick={() => navigate('/profile')} aria-label="Profile">
@@ -59,7 +59,7 @@ export default function Home() {
       {/* Hero summary card */}
       <section className="px-5 mt-5">
         <div className="relative rounded-[30px] grad-warm p-5 overflow-hidden shadow-pop animate-rise" style={{ animationDelay: '.05s' }}>
-          <Mascot name="buddy" size={118} className="absolute -right-2 -bottom-3" />
+          <img src="/apps/splitsy/logo.svg" alt="" className="absolute -right-3 -bottom-2 w-[132px] animate-float" />
           <p className="text-white/85 font-bold text-[13px] uppercase tracking-wider">Across all groups</p>
           <p className="font-display font-extrabold text-white text-[40px] leading-tight mt-1">{groups ? money(total, currency) : '—'}</p>
           <p className="text-white/90 font-semibold text-[14px] pr-24">

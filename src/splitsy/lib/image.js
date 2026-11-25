@@ -36,3 +36,41 @@ export const blobToDataURL = (blob) =>
     r.onerror = rej
     r.readAsDataURL(blob)
   })
+
+/**
+ * Profile photos: center-crop to a square and shrink to 512×512 JPEG.
+ * A 4 MB phone photo usually ends up around 40–80 KB.
+ */
+export async function compressAvatar(file, size = 512, quality = 0.85) {
+  let bitmap
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+  } catch {
+    bitmap = await loadViaImg(file)
+  }
+  const side = Math.min(bitmap.width, bitmap.height)
+  const sx = (bitmap.width - side) / 2
+  const sy = (bitmap.height - side) / 2
+  const out = Math.min(size, side)
+  const canvas = document.createElement('canvas')
+  canvas.width = out
+  canvas.height = out
+  const ctx = canvas.getContext('2d')
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, out, out)
+  bitmap.close?.()
+  const blob = await new Promise((res) => canvas.toBlob((b) => res(b), 'image/jpeg', quality))
+  const result = new File([blob || file], 'avatar.jpg', { type: 'image/jpeg' })
+  result.compressed = true
+  return result
+}
+
+/** Already small JPEGs we made ourselves don't need squeezing again. */
+export const isCompressed = (file) => file?.compressed === true
+
+export function formatBytes(n) {
+  if (!n && n !== 0) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}

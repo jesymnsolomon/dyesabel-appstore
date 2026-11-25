@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Screen, TopBar, Assistant, Button, PhotoInput, useObjectURL, useToast, Mascot } from '../components/ui'
+import { Screen, TopBar, Assistant, Button, useToast } from '../components/ui'
+import AvatarPicker from '../components/AvatarPicker'
 import Icon from '../components/Icon'
 import { api } from '../lib/api'
 import { navigate } from '../lib/router'
@@ -14,7 +15,6 @@ export default function SignUp() {
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
   const [busy, setBusy] = useState(false)
-  const preview = useObjectURL(avatar)
   const toast = useToast()
   const { setUser } = useAuth()
 
@@ -42,23 +42,9 @@ export default function SignUp() {
       ok: name.trim().length > 0,
     },
     {
-      say: `Nice to meet you, ${firstName(name)}! Say cheese`,
-      sub: 'Snap a selfie so friends know it’s you.',
-      body: (
-        <div className="flex flex-col items-center gap-4 pt-2">
-          <PhotoInput facing="user" onPick={setAvatar} className="tap relative">
-            <div className="w-44 h-44 rounded-full p-1.5 grad-warm shadow-pop">
-              <div className="w-full h-full rounded-full bg-white grid place-items-center overflow-hidden">
-                {preview ? <img src={preview} alt="" className="w-full h-full object-cover" /> : <Mascot name="bubble" size={110} anim="none" />}
-              </div>
-            </div>
-            <span className="absolute bottom-2 right-2 w-12 h-12 rounded-full bg-ink text-white grid place-items-center ring-4 ring-cream">
-              <Icon name="camera" />
-            </span>
-          </PhotoInput>
-          <p className="text-[14px] font-semibold text-ink-soft">{preview ? 'Looking good! Tap to retake.' : 'Tap to open your camera'}</p>
-        </div>
-      ),
+      say: `Nice to meet you, ${firstName(name)}! Add a profile photo`,
+      sub: 'Take a selfie or upload a photo so friends know it’s you.',
+      body: <div className="pt-2"><AvatarPicker value={avatar} onChange={setAvatar} /></div>,
       ok: true,
       skip: !avatar,
     },

@@ -1,12 +1,20 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { api } from './lib/api'
 
-const AuthCtx = createContext({ user: null, ready: false, setUser: () => {} })
+const AuthCtx = createContext({ user: null, ready: false, isAdmin: false, setUser: () => {} })
 export const useAuth = () => useContext(AuthCtx)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [ready, setReady] = useState(false)
+  const [isAdmin, setIsAdmin] = useState(false)
+
+  useEffect(() => {
+    if (!user) return setIsAdmin(false)
+    let alive = true
+    api.isAdmin().then((v) => alive && setIsAdmin(Boolean(v))).catch(() => alive && setIsAdmin(false))
+    return () => { alive = false }
+  }, [user?.id])
 
   useEffect(() => {
     let alive = true
@@ -19,7 +27,7 @@ export function AuthProvider({ children }) {
     return () => { alive = false; off() }
   }, [])
 
-  return <AuthCtx.Provider value={{ user, ready, setUser }}>{children}</AuthCtx.Provider>
+  return <AuthCtx.Provider value={{ user, ready, isAdmin, setUser }}>{children}</AuthCtx.Provider>
 }
 
 const PENDING = 'splitsy:pendingJoin'

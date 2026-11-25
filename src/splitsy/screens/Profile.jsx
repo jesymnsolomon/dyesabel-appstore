@@ -1,15 +1,17 @@
 import { useState } from 'react'
-import { Screen, TopBar, Avatar, Button, PhotoInput, Mascot, useToast } from '../components/ui'
+import { Screen, TopBar, Button, Mascot, useToast } from '../components/ui'
+import AvatarPicker from '../components/AvatarPicker'
 import Icon from '../components/Icon'
 import { useAuth } from '../auth'
 import { api } from '../lib/api'
 import { navigate } from '../lib/router'
 
 export default function Profile() {
-  const { user, setUser } = useAuth()
+  const { user, setUser, isAdmin } = useAuth()
   const toast = useToast()
   const [name, setName] = useState(user.name)
   const [busy, setBusy] = useState(false)
+  const [newAvatar, setNewAvatar] = useState(null)
   const standalone = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone
 
   const update = async (patch) => {
@@ -28,10 +30,7 @@ export default function Profile() {
     <Screen className="pb-10">
       <TopBar title="Profile" />
       <section className="px-5 pt-4 flex flex-col items-center">
-        <PhotoInput facing="user" onPick={(f) => update({ avatarFile: f })} className="tap relative">
-          <div className="p-1.5 rounded-full grad-warm shadow-pop"><Avatar user={user} size={128} ring /></div>
-          <span className="absolute bottom-1 right-1 w-11 h-11 rounded-full bg-ink text-white grid place-items-center ring-4 ring-cream"><Icon name="camera" size={19} /></span>
-        </PhotoInput>
+        <AvatarPicker value={newAvatar} user={user} busy={busy && !!newAvatar} onChange={(f) => { setNewAvatar(f); update({ avatarFile: f }) }} />
         <p className="font-display font-bold text-[24px] mt-4">{user.name}</p>
         <p className="text-ink-soft font-semibold text-[14px]">{user.email}</p>
       </section>
@@ -43,6 +42,19 @@ export default function Profile() {
           <Button size="lg" className="w-28" disabled={!name.trim() || name === user.name} loading={busy} onClick={() => update({ name: name.trim() })}>Save</Button>
         </div>
       </section>
+
+      {isAdmin && (
+        <section className="px-5 mt-6">
+          <button onClick={() => navigate('/admin')} className="tap w-full rounded-[28px] bg-ink text-white p-4 flex items-center gap-3 text-left shadow-ink">
+            <span className="w-12 h-12 rounded-2xl grad-btn grid place-items-center shrink-0"><Icon name="crown" size={22} /></span>
+            <span className="flex-1">
+              <span className="block font-display font-bold text-[17px]">Superadmin dashboard</span>
+              <span className="block text-[13px] text-white/70 font-semibold">Users, groups, transactions & stats</span>
+            </span>
+            <Icon name="chevron" />
+          </button>
+        </section>
+      )}
 
       {!standalone && (
         <section className="px-5 mt-6">
