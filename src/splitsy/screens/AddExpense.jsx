@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Screen, Assistant, Avatar, Button, PhotoInput, GalleryInput, Segmented, Confetti, Mascot, Spinner, useObjectURL, useToast } from '../components/ui'
+import { Screen, Assistant, Avatar, Button, PhotoInput, GalleryInput, Segmented, Confetti, Mascot, Spinner, useObjectURL, useObjectURLs, useToast } from '../components/ui'
 import Icon from '../components/Icon'
 import { useAuth } from '../auth'
 import { api } from '../lib/api'
 import { navigate, back } from '../lib/router'
 import { identify, warmUpModel } from '../lib/ai'
 import { detectPlace } from '../lib/geo'
-import { scanReceipt } from '../lib/receipt'
+import { analyzePhoto } from '../lib/analyze'
 import { CATEGORIES, catInfo } from '../lib/categories'
 import { equalSplit, itemSplits } from '../lib/balances'
 import { money, firstName, fullDateTime, toCents, fromCents } from '../lib/format'
 import { CurrencyPicker, CurrencyChip, useRates } from '../components/CurrencyPicker'
+import { CategoryPicker, CategoryField } from '../components/CategoryPicker'
+import ItemEditor from '../components/ItemEditor'
+import ScanningScreen from '../components/ScanningScreen'
+import PhotoViewer from '../components/PhotoViewer'
 import { currencySymbol, rateBetween, round2, formatRate, niceNumber } from '../lib/currency'
 
 const SPLIT_MODES = [['equal', 'Equally'], ['fixed', 'Fixed + rest'], ['custom', 'Custom']]
@@ -28,6 +32,9 @@ export default function AddExpense({ groupId }) {
   const [progress, setProgress] = useState(0)
   const [items, setItems] = useState([])
   const [receiptTotal, setReceiptTotal] = useState(null)
+  const [scannedCount, setScannedCount] = useState(0)
+  const [scanKind, setScanKind] = useState('photo')
+  const [spottedPrice, setSpottedPrice] = useState(null)
   const STEPS = flow === 'receipt' ? RECEIPT_STEPS : PHOTO_STEPS
   const [photo, setPhoto] = useState(null)
   const photoUrl = useObjectURL(photo)
@@ -46,6 +53,7 @@ export default function AddExpense({ groupId }) {
   const [place, setPlace] = useState(undefined) // undefined = detecting, null = unavailable
   const [placeName, setPlaceName] = useState('')
   const [extras, setExtras] = useState([])
+  const extraUrls = useObjectURLs(extras)
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(null)
@@ -54,6 +62,9 @@ export default function AddExpense({ groupId }) {
   const [expCur, setExpCur] = useState(null) // currency the bill was paid in
   const [manualRate, setManualRate] = useState('')
   const [curPicker, setCurPicker] = useState(false)
+  const [catPicker, setCatPicker] = useState(false)
+  const [editing, setEditing] = useState(null)
+  const [viewer, setViewer] = useState(null) // index of the photo being previewed
 
   useEffect(() => {
     api.getGroup(groupId).then((g) => {
@@ -127,25 +138,53 @@ export default function AddExpense({ groupId }) {
   }, [splits, foreign, rate, total])
 
   // ---------- photo → AI ----------
-  const onPhoto = async (file) => {
+  // Every photo is read in full first: all its text (OCR) + what's in the picture (image AI)
+  const onAnalyze = async (file, forceReceipt) => {
+    const id = ++scanId.current
     setPhoto(file)
-    setThinking(true)
-    setStep(1)
+    setScanKind(forceReceipt ? 'receipt' : 'photo')
+    setScanning(true)
+    setProgress(0)
+    // a new photo starts fresh
+    setTitle('')
+    setSuggestions([])
+    setAmount('')
+    setSpottedPrice(null)
+    setItems([])
+    setReceiptTotal(null)
     try {
-      const url = URL.createObjectURL(file)
-      const img = new Image()
-      img.src = url
-      await img.decode()
-      const p = await Promise.race([placePromise.current, new Promise((r) => setTimeout(() => r(null), 3500))])
-      const sug = await identify(img, p)
-      URL.revokeObjectURL(url)
-      applySuggestions(sug, p)
-    } catch {
+      const r = await analyzePhoto(file, { onProgress: (v) => id === scanId.current && setProgress(v), placePromise: placePromise.current, forceReceipt })
+      if (id !== scanId.current) return // cancelled
+      if (r.isReceipt) {
+        const rc = r.receipt || { items: [] }
+        setFlow('receipt')
+        setItems(rc.items)
+        setScannedCount(rc.items.length)
+        setMode('items')
+        setReceiptTotal(rc.total ?? null)
+        setTitle(rc.title || rc.store || r.place?.poi || 'Receipt')
+        setCategory(rc.category || r.place?.venueCategory || 'Food')
+      } else {
+        setFlow('photo')
+        applySuggestions(r.suggestions, r.place)
+        if (r.price) {
+          setAmount(String(r.price))
+          setSpottedPrice(r.price)
+        }
+      }
+      setStep(1)
+    } catch (e) {
+      if (id !== scanId.current) return
+      console.warn('Photo analysis failed', e)
+      setFlow('photo')
       applySuggestions([], null)
+      setStep(1)
     } finally {
-      setThinking(false)
+      if (id === scanId.current) setScanning(false)
     }
   }
+  const onPhoto = (file) => onAnalyze(file, false)
+  const onReceipt = (file) => onAnalyze(file, true)
 
   const applySuggestions = (sug, p) => {
     let list = sug
@@ -158,27 +197,12 @@ export default function AddExpense({ groupId }) {
   }
 
   // ---------- receipt → OCR → checklist ----------
-  const onReceipt = async (file) => {
-    setPhoto(file)
-    setFlow('receipt')
-    setStep(1)
-    setScanning(true)
-    setProgress(0)
-    try {
-      const r = await scanReceipt(file, setProgress)
-      setItems(r.items)
-      setMode('items')
-      setReceiptTotal(r.total)
-      const p = place ?? (await Promise.race([placePromise.current, new Promise((res) => setTimeout(() => res(null), 1500))]))
-      setTitle((t) => t || r.title || r.store || p?.poi || 'Receipt')
-      setCategory(r.category || p?.venueCategory || 'Food')
-    } catch (e) {
-      console.warn('Receipt scan failed', e)
-      setItems([])
-      setTitle((t) => t || 'Receipt')
-    } finally {
-      setScanning(false)
-    }
+  const scanId = useRef(0)
+  const cancelScan = () => {
+    scanId.current++
+    setScanning(false)
+    setFlow('photo')
+    setStep(0)
   }
   const updateItem = (id, patch) => setItems((list) => list.map((i) => (i.id === id ? { ...i, ...patch } : i)))
   const addItem = () => setItems((list) => [...list, { id: crypto.randomUUID?.() || String(Date.now()), name: '', qty: 1, price: '', checked: true, fresh: true }])
@@ -246,35 +270,35 @@ export default function AddExpense({ groupId }) {
     say = `Hey ${firstName(user.name)}! What did you get?`
     sub = 'Snap the food, item, ticket or place — I’ll figure out the rest.'
     body = (
-      <div className="flex flex-col items-center pt-2">
+      <div className="flex flex-col pt-1 gap-3">
         <PhotoInput onPick={onPhoto} className="tap w-full">
-          <div className="w-full aspect-[16/10] rounded-[32px] border-[3px] border-dashed border-ink/15 bg-white flex flex-col items-center justify-center gap-3">
-            <div className="w-20 h-20 rounded-full grad-btn grid place-items-center text-white shadow-pop"><Icon name="camera" size={34} /></div>
-            <p className="font-display font-bold text-[19px]">Take a photo</p>
-            <p className="text-[13px] font-semibold text-ink-faint -mt-2">pizza, shirt, grab ride, hotel…</p>
+          <div className="relative w-full rounded-[32px] grad-warm p-5 overflow-hidden text-left shadow-pop">
+            <div className="absolute -right-6 -bottom-8 w-40 h-40 rounded-full bg-white/15" />
+            <div className="absolute right-10 -top-10 w-24 h-24 rounded-full bg-white/10" />
+            <span className="relative w-16 h-16 rounded-2xl bg-white text-ink grid place-items-center shadow-card"><Icon name="camera" size={30} /></span>
+            <p className="relative font-display font-extrabold text-white text-[24px] mt-4 leading-tight">Take a photo</p>
+            <p className="relative text-white/90 font-semibold text-[14px] mt-0.5">Food, items, tickets or receipts. I’ll read everything and fill it in.</p>
           </div>
         </PhotoInput>
-        <PhotoInput onPick={onReceipt} className="tap w-full mt-3">
-          <div className="card w-full p-4 flex items-center gap-3 text-left">
-            <span className="w-14 h-14 rounded-2xl bg-ink text-white grid place-items-center shrink-0"><Icon name="receipt" size={26} /></span>
-            <span className="flex-1">
-              <span className="block font-display font-bold text-[17px]">Scan a receipt</span>
-              <span className="block text-[13px] font-semibold text-ink-soft">I’ll read every item for you</span>
-            </span>
-            <Icon name="chevron" className="text-ink-faint" />
-          </div>
-        </PhotoInput>
-        <div className="flex gap-2 mt-4">
-          <GalleryInput multiple={false} onPick={onPhoto} className="tap h-11 px-4 rounded-full bg-white border-2 border-line font-bold text-[13px] flex items-center gap-1.5">
-            <Icon name="image" size={17} /> Photo from gallery
-          </GalleryInput>
-          <GalleryInput multiple={false} onPick={onReceipt} className="tap h-11 px-4 rounded-full bg-white border-2 border-line font-bold text-[13px] flex items-center gap-1.5">
-            <Icon name="receipt" size={17} /> Receipt from gallery
+        <div className="grid grid-cols-2 gap-3">
+          <PhotoInput onPick={onReceipt} className="tap text-left">
+            <div className="card p-4 h-full">
+              <span className="w-12 h-12 rounded-2xl bg-lilac text-purple grid place-items-center"><Icon name="receipt" size={22} /></span>
+              <p className="font-display font-bold text-[16px] mt-3 leading-tight">Scan receipt</p>
+              <p className="text-[12px] font-semibold text-ink-soft mt-0.5">Every item, ready to split</p>
+            </div>
+          </PhotoInput>
+          <GalleryInput multiple={false} onPick={onPhoto} className="tap text-left">
+            <div className="card p-4 h-full">
+              <span className="w-12 h-12 rounded-2xl bg-mint text-green grid place-items-center"><Icon name="image" size={22} /></span>
+              <p className="font-display font-bold text-[16px] mt-3 leading-tight">From gallery</p>
+              <p className="text-[12px] font-semibold text-ink-soft mt-0.5">Photos or receipts</p>
+            </div>
           </GalleryInput>
         </div>
       </div>
     )
-    cta = <Button variant="ghost" size="md" className="w-full" onClick={skipPhoto}>No photo — I’ll type it</Button>
+    cta = <Button variant="soft" className="w-full" onClick={skipPhoto}><Icon name="edit" size={18} /> No photo, I’ll type it in</Button>
   }
 
   if (key === 'what') {
@@ -285,7 +309,8 @@ export default function AddExpense({ groupId }) {
       <div className="flex flex-col gap-4">
         {photoUrl && (
           <div className="relative rounded-[28px] overflow-hidden h-48 bg-white">
-            <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+            <button type="button" onClick={() => !thinking && setViewer(0)} className="block w-full h-full" aria-label="Preview photo"><img src={photoUrl} alt="" className="w-full h-full object-cover" /></button>
+            {!thinking && <span className="absolute right-3 bottom-3 w-9 h-9 rounded-full bg-ink/60 text-white grid place-items-center pointer-events-none"><Icon name="zoomIn" size={17} /></span>}
             {thinking && (
               <div className="absolute inset-0 bg-ink/25 grid place-items-center">
                 <div className="absolute inset-x-0 h-1/3 bg-gradient-to-b from-transparent via-white/50 to-transparent animate-[scan_1.4s_ease-in-out_infinite]" />
@@ -307,6 +332,12 @@ export default function AddExpense({ groupId }) {
             })}
           </div>
         )}
+        {spottedPrice != null && !thinking && (
+          <div className="rounded-2xl bg-mint px-4 py-3 text-[13px] font-semibold flex items-center gap-2 animate-rise">
+            <Icon name="scan" size={16} className="text-green shrink-0" />
+            <span className="flex-1">I spotted <b>{money(spottedPrice, ec, { decimals: true })}</b> on the photo and filled in the amount.</span>
+          </div>
+        )}
         <input className="field text-[18px]" placeholder="e.g. Pizza, Grab ride, Hotel" value={title} onChange={(e) => setTitle(e.target.value)} disabled={thinking} />
         <div className="grid grid-cols-4 gap-2">
           {CATEGORIES.map((c) => (
@@ -322,44 +353,36 @@ export default function AddExpense({ groupId }) {
   }
 
   if (key === 'items') {
-    const found = items.filter((i) => !i.fresh).length
+    const found = scannedCount
     say = scanning ? 'Reading your receipt…' : found ? <>I found <span className="grad-text">{found} item{found === 1 ? '' : 's'}</span>! Untick anything not in this split</> : 'Hmm, I couldn’t read that one'
-    sub = scanning ? 'Hold on, this takes a few seconds' : found ? 'Tap a name or price to fix it.' : 'Add the items yourself, or go back and retake the photo.'
+    sub = scanning ? 'Hold on, this takes a few seconds' : found ? 'Tap an item to edit it.' : 'Add the items yourself, or go back and retake the photo.'
     mascot = 'cloudpurple'
     const allOn = items.length > 0 && items.every((i) => i.checked)
     const diff = receiptTotal != null ? fromCents(toCents(receiptTotal) - toCents(items.reduce((s, i) => s + (Number(i.price) || 0), 0))) : 0
     body = (
       <div className="flex flex-col gap-4">
-        {scanning ? (
-          <div className="relative rounded-[28px] overflow-hidden h-64 bg-white">
-            {photoUrl && <img src={photoUrl} alt="" className="w-full h-full object-cover" />}
-            <div className="absolute inset-0 bg-ink/30" />
-            <div className="absolute inset-x-0 h-1/3 bg-gradient-to-b from-transparent via-white/60 to-transparent animate-[scan_1.4s_ease-in-out_infinite]" />
-            <style>{'@keyframes scan{0%{top:-33%}100%{top:100%}}'}</style>
-            <div className="absolute left-4 right-4 bottom-4 bg-white rounded-2xl p-3">
-              <div className="flex justify-between text-[13px] font-bold"><span>Reading items</span><span>{Math.round(progress * 100)}%</span></div>
-              <div className="h-2 rounded-full bg-line mt-2 overflow-hidden"><div className="h-full grad-btn rounded-full transition-all duration-300" style={{ width: `${Math.max(4, progress * 100)}%` }} /></div>
-            </div>
-          </div>
-        ) : (
+        {!scanning && (
           <>
             <div className="card p-3 flex items-center gap-3">
-              {photoUrl && <img src={photoUrl} alt="" className="w-14 h-14 rounded-2xl object-cover shrink-0" />}
+              {photoUrl && <PreviewThumb url={photoUrl} onOpen={() => setViewer(0)} className="w-14 h-14 rounded-2xl" />}
               <div className="flex-1 min-w-0">
                 <p className="text-[11px] font-bold text-ink-faint uppercase tracking-wider">Store / title</p>
                 <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Jollibee" className="w-full font-display font-bold text-[18px] bg-transparent placeholder:text-ink-faint" />
               </div>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-[13px] font-bold text-ink-soft">Prices on this receipt are in</span>
-              <CurrencyChip code={ec} onClick={() => setCurPicker(true)} />
+
+            <div className="flex gap-2">
+              <CategoryField value={category} onClick={() => setCatPicker(true)} />
+              <button type="button" onClick={() => setCurPicker(true)} className="tap w-[42%] shrink-0 h-14 rounded-2xl bg-white border-2 border-line px-3 flex items-center gap-2 text-left">
+                <span className="w-8 h-8 rounded-xl bg-cream grid place-items-center shrink-0 font-display font-extrabold text-[13px]">{expSym.length > 3 ? ec.slice(0, 1) : expSym}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-ink-faint leading-none">Currency</span>
+                  <span className="block font-bold text-[14px] truncate mt-0.5">{ec}</span>
+                </span>
+                <Icon name="chevronDown" size={16} className="text-ink-faint shrink-0" />
+              </button>
             </div>
             {foreign && conversionCard()}
-            <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-5 px-5">
-              {CATEGORIES.map((c) => (
-                <button key={c.name} onClick={() => setCategory(c.name)} className={`tap shrink-0 h-9 px-3 rounded-full border-2 font-bold text-[13px] ${category === c.name ? 'bg-ink border-ink text-white' : 'bg-white border-line'}`}><Icon name={c.icon} size="1em" style={{ color: c.color }} /> {c.name}</button>
-              ))}
-            </div>
 
             <div className="card overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-line">
@@ -369,24 +392,25 @@ export default function AddExpense({ groupId }) {
                 )}
               </div>
               {items.map((i) => (
-                <div key={i.id} className={`flex items-center gap-2 px-3 py-2.5 border-b border-line transition-opacity ${i.checked ? '' : 'opacity-45'}`}>
-                  <button onClick={() => updateItem(i.id, { checked: !i.checked })} className={`tap w-7 h-7 rounded-lg grid place-items-center border-2 shrink-0 transition-colors ${i.checked ? 'bg-green border-green text-white' : 'border-line bg-white'}`} aria-label="Toggle item">
+                <div key={i.id} className={`flex items-center gap-2 pl-3 border-b border-line transition-opacity ${i.checked ? '' : 'opacity-45'}`}>
+                  <button onClick={() => updateItem(i.id, { checked: !i.checked })} className={`tap w-7 h-7 rounded-lg grid place-items-center border-2 shrink-0 transition-colors ${i.checked ? 'bg-green border-green text-white' : 'border-line bg-white'}`} aria-label={i.checked ? 'Exclude item' : 'Include item'}>
                     {i.checked && <Icon name="check" size={15} stroke={3} />}
                   </button>
-                  {Number(i.qty) > 1 && <span className="text-[12px] font-bold text-ink-soft bg-cream rounded-md px-1.5 py-0.5 shrink-0">{i.qty}×</span>}
-                  <div className="flex-1 min-w-0">
-                    <input value={i.name} autoFocus={i.fresh && !i.name} onChange={(e) => updateItem(i.id, { name: e.target.value })} placeholder="Item name" className={`w-full font-bold text-[14px] bg-transparent placeholder:text-ink-faint ${i.checked ? '' : 'line-through'}`} />
-                    {i.discount > 0 && Number(i.price) === Math.round((i.original - i.discount) * 100) / 100 && (
-                      <p className="text-[11px] font-bold text-green truncate">{money(i.original, ec, { decimals: true })} − {money(i.discount, ec, { decimals: true })} discount</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-0.5 bg-cream rounded-xl px-2 h-9 w-[92px] shrink-0">
-                    <span className="text-ink-faint font-bold text-[13px]">{expSym}</span>
-                    <input inputMode="decimal" value={i.price} onChange={(e) => updateItem(i.id, { price: e.target.value.replace(/[^0-9.-]/g, '') })} placeholder="0" className="w-full bg-transparent font-bold text-[14px] text-right" />
-                  </div>
+                  <button onClick={() => setEditing(i)} className="tap flex-1 min-w-0 flex items-center gap-2 py-3 pr-3 text-left">
+                    {Number(i.qty) > 1 && <span className="text-[12px] font-bold text-ink-soft bg-cream rounded-md px-1.5 py-0.5 shrink-0">{i.qty}×</span>}
+                    <span className="flex-1 min-w-0">
+                      <span className={`block font-bold text-[14px] truncate ${i.checked ? '' : 'line-through'} ${i.name ? '' : 'text-ink-faint'}`}>{i.name || 'Unnamed item'}</span>
+                      {i.discount > 0 && Number(i.price) === Math.round((i.original - i.discount) * 100) / 100 && (
+                        <span className="block text-[11px] font-bold text-green truncate">{money(i.original, ec, { decimals: true })} − {money(i.discount, ec, { decimals: true })} discount</span>
+                      )}
+                      {i.shared && <span className="block text-[11px] font-bold text-ink-faint">shared by everyone</span>}
+                    </span>
+                    <span className={`font-display font-bold text-[15px] shrink-0 ${Number(i.price) < 0 ? 'text-green' : ''}`}>{i.price === '' ? '—' : money(Number(i.price), ec, { decimals: true })}</span>
+                    <Icon name="edit" size={15} className="text-ink-faint shrink-0" />
+                  </button>
                 </div>
               ))}
-              <button onClick={addItem} className="tap w-full flex items-center gap-2 px-4 py-3 font-bold text-[14px] text-ink-soft"><Icon name="plus" size={18} /> Add item</button>
+              <button onClick={() => setEditing({ id: crypto.randomUUID?.() || String(Date.now()), name: '', qty: 1, price: '', checked: true, isNew: true })} className="tap w-full flex items-center gap-2 px-4 py-3 font-bold text-[14px] text-ink-soft"><Icon name="plus" size={18} /> Add item</button>
             </div>
 
             {receiptTotal != null && Math.abs(diff) >= 0.01 && (
@@ -616,8 +640,8 @@ export default function AddExpense({ groupId }) {
         <div>
           <p className="font-bold text-[14px] text-ink-soft mb-2">More photos (receipt, etc.)</p>
           <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            {photoUrl && <Thumb url={photoUrl} label="Main" />}
-            {extras.map((f, i) => <ExtraThumb key={i} file={f} onRemove={() => setExtras(extras.filter((_, k) => k !== i))} />)}
+            {photoUrl && <Thumb url={photoUrl} label="Main" onOpen={() => setViewer(0)} />}
+            {extras.map((f, i) => <ExtraThumb key={i} url={extraUrls[i]} onOpen={() => setViewer((photoUrl ? 1 : 0) + i)} onRemove={() => setExtras(extras.filter((_, k) => k !== i))} />)}
             <PhotoInput onPick={(f) => setExtras([...extras, f])} className="tap w-20 h-20 shrink-0 rounded-2xl bg-white border-2 border-dashed border-ink/15 grid place-items-center text-ink-soft"><Icon name="camera" /></PhotoInput>
             <GalleryInput onPick={(fs) => setExtras([...extras, ...fs])} className="tap w-20 h-20 shrink-0 rounded-2xl bg-white border-2 border-dashed border-ink/15 grid place-items-center text-ink-soft"><Icon name="image" /></GalleryInput>
           </div>
@@ -634,7 +658,7 @@ export default function AddExpense({ groupId }) {
     body = (
       <div className="card overflow-hidden">
         <div className="relative h-28 grad-warm">
-          {photoUrl && <img src={photoUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-90" />}
+          {photoUrl && <button type="button" onClick={() => setViewer(0)} className="absolute inset-0" aria-label="Preview photo"><img src={photoUrl} alt="" className="w-full h-full object-cover opacity-90" /></button>}
         </div>
         <div className="-mt-9 flex flex-col items-center px-4">
           <div className="w-[72px] h-[72px] rounded-full bg-white grid place-items-center text-[34px] ring-4 ring-white shadow-card" style={{ background: info.tint }}><Icon name={info.icon} size="1em" style={{ color: info.color }} /></div>
@@ -682,6 +706,20 @@ export default function AddExpense({ groupId }) {
 
   return (
     <Screen className="flex flex-col">
+      {viewer != null && <PhotoViewer photos={[photoUrl, ...extraUrls]} index={viewer} onClose={() => setViewer(null)} />}
+      {scanning && <ScanningScreen kind={scanKind} photoUrl={photoUrl} progress={progress} onCancel={cancelScan} />}
+      <CategoryPicker open={catPicker} onClose={() => setCatPicker(false)} value={category} onPick={setCategory} />
+      <ItemEditor
+        item={editing}
+        currency={ec}
+        symbol={expSym}
+        onClose={() => setEditing(null)}
+        onDelete={() => { setItems((list) => list.filter((x) => x.id !== editing.id)); setEditing(null) }}
+        onSave={(patch) => {
+          setItems((list) => (list.some((x) => x.id === editing.id) ? list.map((x) => (x.id === editing.id ? { ...x, ...patch } : x)) : [...list, { ...editing, ...patch, isNew: undefined }]))
+          setEditing(null)
+        }}
+      />
       <CurrencyPicker open={curPicker} onClose={() => setCurPicker(false)} value={ec} onPick={(c) => { setExpCur(c); setManualRate('') }} title="What currency did you pay in?" note={`It’ll be converted to ${cur}, the group’s currency.`} />
       <div className="sticky top-0 z-30 bg-cream/85 backdrop-blur-xl safe-top">
         <div className="h-14 px-4 flex items-center gap-3">
@@ -760,21 +798,29 @@ function Row({ label, children }) {
   )
 }
 
-function Thumb({ url, label }) {
+function PreviewThumb({ url, onOpen, className = '' }) {
   return (
-    <div className="relative w-20 h-20 shrink-0 rounded-2xl overflow-hidden">
+    <button type="button" onClick={onOpen} className={`tap relative overflow-hidden shrink-0 ${className}`} aria-label="Preview photo">
       <img src={url} alt="" className="w-full h-full object-cover" />
-      {label && <span className="absolute bottom-1 left-1 bg-ink/70 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md">{label}</span>}
-    </div>
+      <span className="absolute right-1 bottom-1 w-5 h-5 rounded-full bg-ink/60 text-white grid place-items-center"><Icon name="zoomIn" size={11} /></span>
+    </button>
   )
 }
 
-function ExtraThumb({ file, onRemove }) {
-  const url = useObjectURL(file)
+function Thumb({ url, label, onOpen }) {
+  return (
+    <button type="button" onClick={onOpen} className="tap relative w-20 h-20 shrink-0 rounded-2xl overflow-hidden" aria-label="Preview photo">
+      <img src={url} alt="" className="w-full h-full object-cover" />
+      {label && <span className="absolute bottom-1 left-1 bg-ink/70 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md">{label}</span>}
+    </button>
+  )
+}
+
+function ExtraThumb({ url, onOpen, onRemove }) {
   return (
     <div className="relative w-20 h-20 shrink-0 rounded-2xl overflow-hidden">
-      {url && <img src={url} alt="" className="w-full h-full object-cover" />}
-      <button onClick={onRemove} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-ink/70 text-white grid place-items-center"><Icon name="close" size={13} stroke={3} /></button>
+      <button type="button" onClick={onOpen} className="tap block w-full h-full" aria-label="Preview photo">{url && <img src={url} alt="" className="w-full h-full object-cover" />}</button>
+      <button onClick={onRemove} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-ink/70 text-white grid place-items-center" aria-label="Remove photo"><Icon name="close" size={13} stroke={3} /></button>
     </div>
   )
 }

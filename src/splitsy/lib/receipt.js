@@ -196,11 +196,13 @@ function score(r) {
  * total, reads again with a different clean-up and keeps the better result.
  * @returns {Promise<{store, invoice, title, items, total, text}>}
  */
-export async function scanReceipt(file, onProgress) {
+export async function scanReceipt(file, onProgress, { mode = 'receipt' } = {}) {
   onProgress?.(0.02)
   const [worker, gray] = await Promise.all([getWorker((p) => onProgress?.(p * 0.75)), loadGray(file)])
   let best = await readPass(worker, toCanvas(gray, 'binary'))
-  if (!reconciles(best)) {
+  // 'auto' (any photo): only re-read if this looks like a receipt that doesn't add up yet
+  const wantSecond = mode === 'receipt' ? !reconciles(best) : best.items.length >= 1 && !reconciles(best)
+  if (wantSecond) {
     onProgressRef.current = (p) => onProgress?.(0.75 + p * 0.25)
     try {
       const second = await readPass(worker, toCanvas(gray, 'soft'))
@@ -501,4 +503,24 @@ export function parseReceipt(input) {
     .filter((it) => it.price !== 0)
 
   return { store, invoice, title, category, items: out, total: totals.length ? Math.max(...totals) : null }
+}
+
+/**
+ * The most likely price on a non-receipt photo (price tag, menu board, ticket):
+ * a currency-marked amount, or one after "price/total/amount/SRP", or the only amount there.
+ */
+export function findPrice(text) {
+  if (!text) return null
+  const lines = text.split('\n').map((l) => fixLine(l))
+  const nums = []
+  for (const l of lines) {
+    const marked = l.match(/(?:₱|php|p|\$|srp|price|total|amount|now)\s*:?\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:[.,]\d{2})?)\b/i)
+    if (marked) nums.push({ v: toNumber(marked[1]), w: 3 })
+    for (const m of l.matchAll(/(?:^|\s)((?:\d{1,3}(?:,\d{3})+|\d+)[.,]\d{2})(?=\s|$|[a-z])/gi)) nums.push({ v: toNumber(m[1]), w: 1 })
+  }
+  const ok = nums.filter((n) => n.v > 0 && n.v < 1_000_000)
+  if (!ok.length) return null
+  const best = Math.max(...ok.map((n) => n.w))
+  const top = [...new Set(ok.filter((n) => n.w === best).map((n) => n.v))]
+  return top.length === 1 || best === 3 ? Math.max(...top) : null
 }

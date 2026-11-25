@@ -7,6 +7,7 @@ import { navigate } from '../lib/router'
 import { catInfo } from '../lib/categories'
 import { mapsLink } from '../lib/geo'
 import { formatRate } from '../lib/currency'
+import PhotoViewer from '../components/PhotoViewer'
 import { money, fullDateTime, firstName } from '../lib/format'
 
 export default function ExpenseDetail({ expenseId }) {
@@ -66,8 +67,9 @@ export default function ExpenseDetail({ expenseId }) {
         {e.photos?.length > 0 ? (
           <div className="flex gap-3 overflow-x-auto snap-x snap-mandatory no-scrollbar -mx-5 px-5">
             {e.photos.map((p, i) => (
-              <button key={i} onClick={() => setViewer(p)} className="snap-center shrink-0 w-[85%] aspect-[4/3] rounded-[28px] overflow-hidden bg-white shadow-card">
+              <button key={i} onClick={() => setViewer(i)} className="relative snap-center shrink-0 w-[85%] aspect-[4/3] rounded-[28px] overflow-hidden bg-white shadow-card" aria-label="Preview photo">
                 <img src={p} alt="" className="w-full h-full object-cover" />
+                <span className="absolute right-3 bottom-3 w-9 h-9 rounded-full bg-ink/60 text-white grid place-items-center"><Icon name="zoomIn" size={17} /></span>
               </button>
             ))}
           </div>
@@ -163,12 +165,7 @@ export default function ExpenseDetail({ expenseId }) {
         <p className="text-[12px] text-ink-faint font-semibold mt-2 px-1">Added by {e.created_by === user.id ? 'you' : firstName(byId(e.created_by).name)}</p>
       </section>
 
-      {viewer && (
-        <div className="fixed inset-0 z-50 bg-ink/95 grid place-items-center p-4" onClick={() => setViewer(null)}>
-          <img src={viewer} alt="" className="max-w-full max-h-full rounded-2xl animate-pop" />
-          <button className="absolute top-0 right-0 safe-top pr-4 text-white"><Icon name="close" size={28} /></button>
-        </div>
-      )}
+      {viewer != null && <PhotoViewer photos={e.photos} index={viewer} onClose={() => setViewer(null)} />}
 
       <Sheet open={confirmDel} onClose={() => setConfirmDel(false)}>
         <div className="text-center">

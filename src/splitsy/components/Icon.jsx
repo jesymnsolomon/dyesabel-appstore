@@ -2,7 +2,7 @@ import {
   ArrowLeftRight, ArrowRight, Banknote, BedDouble, Camera, CarTaxiFront, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy,
   CreditCard, Crown, CupSoda, Eye, EyeOff, Globe, Hash, HandCoins, Handshake, Image, Info, Lightbulb, Link, Lock, LogOut, MapPin,
   PartyPopper, Pencil, Percent, Pill, Pizza, Plane, Plus, Receipt, RefreshCw, ScanLine, Scissors, Search, Share, Shirt,
-  ShoppingBag, ShoppingCart, Smile, Sparkles, Store, Trash2, TrendingUp, Upload, Users, Wallet, X, Calculator, CircleAlert, Frown,
+  ShoppingBag, ShoppingCart, Smile, Sparkles, Store, Trash2, TrendingUp, Upload, Users, Wallet, X, ZoomIn, ZoomOut, Calculator, CircleAlert, Frown,
 } from 'lucide-react'
 
 // Every icon in Splitsy comes from lucide-react. Screens use short names, mapped here.
@@ -40,6 +40,8 @@ const ICONS = {
   receipt: Receipt,
   scan: ScanLine,
   search: Search,
+  zoomIn: ZoomIn,
+  zoomOut: ZoomOut,
   upload: Upload,
   convert: ArrowLeftRight,
   idea: Lightbulb,

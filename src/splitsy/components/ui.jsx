@@ -154,6 +154,17 @@ export function useObjectURL(file) {
   return url
 }
 
+/** Object URLs for several files at once (cleaned up automatically). */
+export function useObjectURLs(files) {
+  const [urls, setUrls] = useState([])
+  useEffect(() => {
+    const list = (files || []).filter(Boolean).map((f) => URL.createObjectURL(f))
+    setUrls(list)
+    return () => list.forEach((u) => URL.revokeObjectURL(u))
+  }, [files])
+  return urls
+}
+
 /**
  * Tracks the part of the screen not covered by the phone keyboard.
  * iOS/Android keep "fixed" elements anchored behind the keyboard, so sheets
