@@ -8,9 +8,11 @@ import { identify, warmUpModel } from '../lib/ai'
 import { detectPlace } from '../lib/geo'
 import { scanReceipt } from '../lib/receipt'
 import { CATEGORIES, catInfo } from '../lib/categories'
-import { equalSplit } from '../lib/balances'
+import { equalSplit, itemSplits } from '../lib/balances'
 import { money, firstName, fullDateTime, toCents, fromCents, CURRENCIES } from '../lib/format'
 
+const SPLIT_MODES = [['equal', 'Equally'], ['custom', 'Custom']]
+const RECEIPT_MODES = [['items', 'By item'], ['equal', 'Equally'], ['custom', 'Custom']]
 const PHOTO_STEPS = ['photo', 'what', 'amount', 'payer', 'split', 'details', 'review']
 const RECEIPT_STEPS = ['photo', 'items', 'payer', 'split', 'details', 'review']
 
@@ -70,10 +72,12 @@ export default function AddExpense({ groupId }) {
   const byId = (id) => members.find((m) => m.id === id)
   const nameOf = (id) => (id === user.id ? 'You' : firstName(byId(id)?.name))
 
+  const everyone = useMemo(() => members.map((m) => m.id), [members])
   const splits = useMemo(() => {
+    if (mode === 'items') return itemSplits(selectedItems.map((i) => ({ ...i, price: Number(i.price) })), everyone)
     if (mode === 'equal') return equalSplit(total, people)
     return people.map((id) => ({ user_id: id, amount: Number(custom[id]) || 0 }))
-  }, [mode, total, people, custom])
+  }, [mode, total, people, custom, selectedItems, everyone])
   const splitSum = fromCents(splits.reduce((s, x) => s + toCents(x.amount), 0))
   const remaining = fromCents(toCents(total) - toCents(splitSum))
 
@@ -118,6 +122,7 @@ export default function AddExpense({ groupId }) {
     try {
       const r = await scanReceipt(file, setProgress)
       setItems(r.items)
+      setMode('items')
       setReceiptTotal(r.total)
       const p = place ?? (await Promise.race([placePromise.current, new Promise((res) => setTimeout(() => res(null), 1500))]))
       setTitle((t) => t || r.store || p?.poi || 'Receipt')
@@ -159,7 +164,13 @@ export default function AddExpense({ groupId }) {
         lat: place?.lat ?? null,
         lng: place?.lng ?? null,
         note: note.trim() || null,
-        ...(flow === 'receipt' && { items: selectedItems.map((i) => ({ name: i.name.trim() || 'Item', qty: Number(i.qty) || 1, price: Number(i.price) })) }),
+        ...(flow === 'receipt' && {
+          items: selectedItems.map((i) => ({
+            name: i.name.trim() || 'Item', qty: Number(i.qty) || 1, price: Number(i.price),
+            ...(i.shared && { shared: true }),
+            ...(mode === 'items' && !i.shared && { people: i.people?.length ? i.people : everyone }),
+          })),
+        }),
       }
       const files = [photo, ...extras].filter(Boolean)
       const e = await api.createExpense(payload, files)
@@ -395,17 +406,38 @@ export default function AddExpense({ groupId }) {
   }
 
   if (key === 'split') {
-    say = 'Who’s splitting it? 🍰'
-    sub = mode === 'equal' ? 'Tap people to include or remove them.' : 'Type how much each person owes.'
+    say = mode === 'items' ? 'Who had what? 🍽️' : 'Who’s splitting it? 🍰'
+    sub = mode === 'items' ? 'Tap faces to say who shared each item.' : mode === 'equal' ? 'Tap people to include or remove them.' : 'Type how much each person owes.'
     mascot = 'strawberry'
     body = (
       <div className="flex flex-col gap-4">
         <div className="flex bg-white rounded-full p-1 border-2 border-line">
-          {[['equal', 'Split equally'], ['custom', 'Custom amounts']].map(([v, l]) => (
+          {(flow === 'receipt' ? RECEIPT_MODES : SPLIT_MODES).map(([v, l]) => (
             <button key={v} onClick={() => setMode(v)} className={`flex-1 h-10 rounded-full font-bold text-[14px] transition-colors ${mode === v ? 'bg-ink text-white' : 'text-ink-soft'}`}>{l}</button>
           ))}
         </div>
-        <div className="card divide-y divide-line overflow-hidden">
+        {mode === 'items' && (
+          <ItemAssign items={selectedItems} members={members} me={user.id} cur={cur} everyone={everyone} onChange={(id, ppl) => updateItem(id, { people: ppl })} />
+        )}
+        {mode === 'items' && (
+          <div className="card p-4">
+            <p className="font-display font-bold text-[16px] mb-3">Each person pays</p>
+            <div className="flex flex-col gap-2.5">
+              {members.map((m) => {
+                const amt = splits.find((x) => x.user_id === m.id)?.amount || 0
+                return (
+                  <div key={m.id} className={`flex items-center gap-3 ${amt ? '' : 'opacity-40'}`}>
+                    <Avatar user={m} size={32} />
+                    <span className="flex-1 font-bold text-[14px]">{m.id === user.id ? 'Me' : m.name}</span>
+                    <span className="font-display font-bold text-[16px]">{money(amt, cur, { decimals: true })}</span>
+                  </div>
+                )
+              })}
+            </div>
+            {selectedItems.some((i) => i.shared) && <p className="text-[12px] text-ink-soft font-semibold mt-3">✨ Service charge & discounts are shared based on what each person had.</p>}
+          </div>
+        )}
+        {mode !== 'items' && <div className="card divide-y divide-line overflow-hidden">
           {members.map((m) => {
             const on = people.includes(m.id)
             const share = splits.find((s) => s.user_id === m.id)?.amount || 0
@@ -426,7 +458,7 @@ export default function AddExpense({ groupId }) {
               </div>
             )
           })}
-        </div>
+        </div>}
         {mode === 'custom' && (
           <p className={`text-center font-bold text-[14px] ${remaining === 0 ? 'text-green' : 'text-orange'}`}>
             {remaining === 0 ? 'Perfect, it adds up! ✅' : remaining > 0 ? `${money(remaining, cur, { decimals: true })} left to assign` : `${money(-remaining, cur, { decimals: true })} too much`}
@@ -434,7 +466,9 @@ export default function AddExpense({ groupId }) {
         )}
       </div>
     )
-    ctaOk = people.length > 0 && (mode === 'equal' || remaining === 0)
+    ctaOk = mode === 'items'
+      ? selectedItems.every((i) => i.shared || !Array.isArray(i.people) || i.people.length > 0) && splits.length > 0
+      : people.length > 0 && (mode === 'equal' || remaining === 0)
   }
 
   if (key === 'details') {
@@ -504,7 +538,7 @@ export default function AddExpense({ groupId }) {
         <div className="px-4 pb-4 mt-2">
           <Row label="Category">{info.emoji} {category}</Row>
           <Row label="Paid by"><span className="flex items-center gap-2"><Avatar user={byId(paidBy)} size={22} />{nameOf(paidBy)}</span></Row>
-          <Row label="Split">{mode === 'equal' ? `Equally · ${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Custom amounts'}</Row>
+          <Row label="Split">{mode === 'items' ? `By item · ${splits.length} ${splits.length === 1 ? 'person' : 'people'}` : mode === 'equal' ? `Equally · ${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Custom amounts'}</Row>
           <Row label="Payment">{method === 'cash' ? '💵 Cash' : '💳 Card'} · {channel === 'online' ? 'Online' : 'In person'}</Row>
           <Row label="Place">{placeName || place?.name || '—'}</Row>
           <Row label="When">{fullDateTime(now)}</Row>
@@ -541,6 +575,48 @@ export default function AddExpense({ groupId }) {
         )}
       </div>
     </Screen>
+  )
+}
+
+function ItemAssign({ items, members, me, cur, everyone, onChange }) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      {items.map((it) => {
+        const ppl = Array.isArray(it.people) ? it.people : everyone
+        const all = ppl.length === everyone.length
+        return (
+          <div key={it.id} className={`card p-3.5 ${!it.shared && ppl.length === 0 ? 'ring-2 ring-orange' : ''}`}>
+            <div className="flex items-center gap-2">
+              {Number(it.qty) > 1 && <span className="text-[12px] font-bold text-ink-soft bg-cream rounded-md px-1.5 py-0.5">{it.qty}×</span>}
+              <span className="flex-1 font-bold text-[15px] truncate">{it.name || 'Item'}</span>
+              <span className={`font-display font-bold text-[15px] ${Number(it.price) < 0 ? 'text-green' : ''}`}>{money(Number(it.price), cur, { decimals: true })}</span>
+            </div>
+            {it.shared ? (
+              <p className="text-[12px] font-semibold text-ink-soft mt-1.5">✨ Shared fairly by everyone, based on what they had</p>
+            ) : (
+              <div className="flex items-center gap-2 mt-2.5 overflow-x-auto no-scrollbar">
+                <button onClick={() => onChange(it.id, all ? [] : everyone)} className={`tap shrink-0 h-9 px-3 rounded-full text-[12px] font-bold border-2 ${all ? 'bg-ink text-white border-ink' : 'bg-white border-line'}`}>
+                  {all ? 'Everyone' : 'All'}
+                </button>
+                {members.map((m) => {
+                  const on = ppl.includes(m.id)
+                  return (
+                    <button key={m.id} onClick={() => onChange(it.id, on ? ppl.filter((x) => x !== m.id) : [...ppl, m.id])} className="tap shrink-0 flex flex-col items-center gap-0.5 w-12" aria-label={m.name}>
+                      <span className={`relative rounded-full transition-all ${on ? 'ring-[3px] ring-green' : 'opacity-35 grayscale'}`}>
+                        <Avatar user={m} size={34} />
+                      </span>
+                      <span className={`text-[10px] font-bold truncate max-w-full ${on ? '' : 'text-ink-faint'}`}>{m.id === me ? 'Me' : firstName(m.name)}</span>
+                    </button>
+                  )
+                })}
+                {ppl.length > 1 && <span className="shrink-0 text-[11px] font-bold text-ink-faint pl-1">{money(Number(it.price) / ppl.length, cur, { decimals: true })} each</span>}
+              </div>
+            )}
+            {!it.shared && ppl.length === 0 && <p className="text-[12px] font-bold text-orange mt-1.5">Pick who had this</p>}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 

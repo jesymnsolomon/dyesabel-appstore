@@ -167,6 +167,7 @@ export function parseReceipt(text) {
       qty,
       price: DISCOUNT_WORDS.test(name) ? -Math.abs(value) : value,
       checked: true,
+      shared: DISCOUNT_WORDS.test(name) || FEE_WORDS.test(name) || value < 0,
     })
   })
 

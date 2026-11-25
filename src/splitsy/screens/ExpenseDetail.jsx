@@ -105,7 +105,16 @@ export default function ExpenseDetail({ expenseId }) {
             {e.items.map((it, i) => (
               <div key={i} className="flex items-center gap-2 px-4 py-2.5 border-t border-line">
                 {it.qty > 1 && <span className="text-[12px] font-bold text-ink-soft bg-cream rounded-md px-1.5 py-0.5">{it.qty}×</span>}
-                <span className="flex-1 font-semibold text-[14px] truncate">{it.name}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-semibold text-[14px] truncate">{it.name}</span>
+                  {it.people?.length > 0 && it.people.length < group.members.length && (
+                    <span className="flex items-center gap-1 mt-1">
+                      {it.people.map((id) => <Avatar key={id} user={byId(id)} size={18} />)}
+                      <span className="text-[11px] font-bold text-ink-faint ml-0.5">{it.people.map((id) => (id === user.id ? 'You' : firstName(byId(id).name))).join(', ')}</span>
+                    </span>
+                  )}
+                  {it.shared && <span className="block text-[11px] font-bold text-ink-faint">shared fairly</span>}
+                </span>
                 <span className={`font-bold text-[14px] ${it.price < 0 ? 'text-green' : ''}`}>{money(it.price, cur, { decimals: true })}</span>
               </div>
             ))}

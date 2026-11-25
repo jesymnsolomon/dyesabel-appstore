@@ -14,6 +14,43 @@ export function equalSplit(total, userIds) {
   })
 }
 
+/**
+ * Split a receipt by item.
+ * - Normal items are divided equally between the people who had them.
+ * - Shared lines (service charge, delivery fee, discounts) are spread in
+ *   proportion to what each person ordered, so it stays fair.
+ * Always adds up to the exact total.
+ */
+export function itemSplits(items, everyone) {
+  const owed = {}
+  const add = (id, c) => (owed[id] = (owed[id] || 0) + c)
+  const spread = (cents, ids, weights) => {
+    let given = 0
+    ids.forEach((id, k) => {
+      const part = k === ids.length - 1 ? cents - given : Math.round(cents * weights[k])
+      given += part
+      add(id, part)
+    })
+  }
+
+  for (const it of items.filter((i) => !i.shared)) {
+    const ids = it.people?.length ? it.people : everyone
+    spread(toCents(it.price), ids, ids.map(() => 1 / ids.length))
+  }
+
+  const base = { ...owed }
+  const subtotal = Object.values(base).reduce((a, b) => a + b, 0)
+  for (const it of items.filter((i) => i.shared)) {
+    const ids = subtotal > 0 ? Object.keys(base).filter((id) => base[id] > 0) : everyone
+    const weights = ids.map((id) => (subtotal > 0 ? base[id] / subtotal : 1 / ids.length))
+    spread(toCents(it.price), ids, weights)
+  }
+
+  return Object.entries(owed)
+    .filter(([, c]) => c !== 0)
+    .map(([user_id, c]) => ({ user_id, amount: fromCents(c) }))
+}
+
 /** Net balance per user, in cents. Positive = is owed money. Negative = owes. */
 export function netBalances(expenses, memberIds) {
   const net = Object.fromEntries(memberIds.map((id) => [id, 0]))
