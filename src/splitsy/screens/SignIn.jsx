@@ -43,6 +43,7 @@ export default function SignIn() {
             </button>
           </div>
         </div>
+        <button type="button" onClick={() => navigate('/forgot')} className="self-end mt-3 text-[14px] font-bold text-pink px-1 py-1">Forgot password?</button>
         <div className="flex-1" />
         <div className="pt-6 safe-bottom flex flex-col gap-2">
           <Button type="submit" disabled={!email || !password} loading={busy}>Sign in</Button>

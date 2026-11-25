@@ -65,6 +65,18 @@ export const cloudApi = {
     const res = check(await supabase.auth.signInWithPassword({ email, password }))
     return loadProfile(res.user)
   },
+  /** Emails a reset link. Supabase doesn't reveal whether the email exists. */
+  async requestPasswordReset(email) {
+    const redirectTo = `${window.location.origin}/splitsy/?reset=1`
+    check(await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo }))
+    return { emailed: true }
+  },
+  /** Used on the "Set a new password" screen after opening the email link. */
+  async updatePassword(password) {
+    check(await supabase.auth.updateUser({ password }))
+    const { data } = await supabase.auth.getSession()
+    return loadProfile(data.session?.user)
+  },
   async signOut() {
     await supabase.auth.signOut()
   },

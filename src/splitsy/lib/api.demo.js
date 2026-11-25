@@ -98,6 +98,31 @@ export const demoApi = {
     emit(publicUser(u))
     return publicUser(u)
   },
+  // Demo mode can't send emails, so the reset happens right here on this phone.
+  async requestPasswordReset(email) {
+    await wait()
+    const db = await load()
+    if (!db.users.some((u) => u.email === email.trim().toLowerCase())) throw new Error('No account with that email on this phone')
+    return { emailed: false }
+  },
+  async resetPasswordDirect(email, password) {
+    const db = await load()
+    const u = db.users.find((x) => x.email === email.trim().toLowerCase())
+    if (!u) throw new Error('No account with that email on this phone')
+    u.pass = await hash(password)
+    u.last_sign_in_at = new Date().toISOString()
+    await save(db)
+    localStorage.setItem(SESSION, u.id)
+    emit(publicUser(u))
+    return publicUser(u)
+  },
+  async updatePassword(password) {
+    const db = await load()
+    const u = db.users.find((x) => x.id === requireMe())
+    u.pass = await hash(password)
+    await save(db)
+    return publicUser(u)
+  },
   async signOut() {
     localStorage.removeItem(SESSION)
     emit(null)

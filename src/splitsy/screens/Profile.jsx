@@ -77,6 +77,14 @@ export default function Profile() {
         </div>
       </section>
 
+      <section className="px-5 mt-6">
+        <button onClick={() => navigate('/change-password')} className="tap w-full card p-4 flex items-center gap-3 text-left">
+          <span className="w-10 h-10 rounded-2xl bg-lilac text-purple grid place-items-center shrink-0"><Icon name="lock" size={19} /></span>
+          <span className="flex-1 font-bold text-[15px]">Change password</span>
+          <Icon name="chevron" className="text-ink-faint" />
+        </button>
+      </section>
+
       <section className="px-5 mt-8">
         <Button variant="soft" className="w-full" onClick={async () => { await api.signOut(); setUser(null); navigate('/', { replace: true }) }}>
           <Icon name="logout" size={19} /> Sign out

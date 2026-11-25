@@ -1,6 +1,6 @@
 import {
   ArrowLeftRight, ArrowRight, Banknote, BedDouble, Camera, CarTaxiFront, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Copy,
-  CreditCard, Crown, CupSoda, Eye, EyeOff, Globe, Hash, HandCoins, Handshake, Image, Info, Lightbulb, Link, LogOut, MapPin,
+  CreditCard, Crown, CupSoda, Eye, EyeOff, Globe, Hash, HandCoins, Handshake, Image, Info, Lightbulb, Link, Lock, LogOut, MapPin,
   PartyPopper, Pencil, Percent, Pill, Pizza, Plane, Plus, Receipt, RefreshCw, ScanLine, Scissors, Search, Share, Shirt,
   ShoppingBag, ShoppingCart, Smile, Sparkles, Store, Trash2, TrendingUp, Upload, Users, Wallet, X, Calculator, CircleAlert, Frown,
 } from 'lucide-react'
@@ -17,6 +17,7 @@ const ICONS = {
   chevronDown: ChevronDown,
   share: Share,
   link: Link,
+  lock: Lock,
   copy: Copy,
   pin: MapPin,
   card: CreditCard,

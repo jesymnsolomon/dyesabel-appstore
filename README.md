@@ -40,6 +40,12 @@ With no Supabase keys it runs in **Demo mode**: everything works, but it's saved
    VITE_SUPABASE_ANON_KEY=eyJ...
    ```
 6. Restart `npm run dev`. The Demo badge disappears, and invite links now work across phones.
+7. **For "Forgot password" emails**: in **Authentication → URL Configuration**, set **Site URL** to your live address (e.g. `https://your-app.vercel.app`) and add these to **Redirect URLs**:
+   ```
+   https://your-app.vercel.app/splitsy/**
+   http://localhost:5173/splitsy/**
+   ```
+   You can restyle the email in **Authentication → Email Templates → Reset Password**. Supabase's built-in email sender only allows a few emails per hour. For real use, add your own SMTP (e.g. Resend or Brevo) under **Authentication → SMTP Settings**.
 
 > Already ran the SQL before? Just run `supabase/schema.sql` again. It's safe to re-run and adds the newer columns (`items`, `original_currency`, `original_amount`, `fx_rate`).
 
@@ -70,7 +76,7 @@ Open **Profile → Superadmin dashboard** (or go to `/splitsy/#/admin`). Only su
 
 ## What Splitsy does
 
-- **Accounts**: name → selfie (front camera) → email + password.
+- **Accounts**: name → selfie or uploaded photo → email + password. **Forgot password** emails a reset link that opens a "Set a new password" screen; signed-in users can change it from Profile.
 - **Groups**: pick a name, mascot and currency (₱ by default). **Anyone with the invite link can join**.
   If they're not signed up yet, they sign up first and are dropped right back into the group.
 - **Add expense, assistant style (7 quick steps)**
