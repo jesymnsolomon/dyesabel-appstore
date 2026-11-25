@@ -170,8 +170,8 @@ export default function AddExpense({ groupId }) {
       setMode('items')
       setReceiptTotal(r.total)
       const p = place ?? (await Promise.race([placePromise.current, new Promise((res) => setTimeout(() => res(null), 1500))]))
-      setTitle((t) => t || r.store || p?.poi || 'Receipt')
-      setCategory(p?.venueCategory || 'Food')
+      setTitle((t) => t || r.title || r.store || p?.poi || 'Receipt')
+      setCategory(r.category || p?.venueCategory || 'Food')
     } catch (e) {
       console.warn('Receipt scan failed', e)
       setItems([])
@@ -213,6 +213,7 @@ export default function AddExpense({ groupId }) {
         ...(flow === 'receipt' && {
           items: selectedItems.map((i) => ({
             name: i.name.trim() || 'Item', qty: Number(i.qty) || 1, price: Number(i.price),
+            ...(i.discount > 0 && Number(i.price) === Math.round((i.original - i.discount) * 100) / 100 && { original: i.original, discount: i.discount }),
             ...(i.shared && { shared: true }),
             ...(mode === 'items' && !i.shared && { people: i.people?.length ? i.people : everyone }),
           })),
@@ -373,7 +374,12 @@ export default function AddExpense({ groupId }) {
                     {i.checked && <Icon name="check" size={15} stroke={3} />}
                   </button>
                   {Number(i.qty) > 1 && <span className="text-[12px] font-bold text-ink-soft bg-cream rounded-md px-1.5 py-0.5 shrink-0">{i.qty}×</span>}
-                  <input value={i.name} autoFocus={i.fresh && !i.name} onChange={(e) => updateItem(i.id, { name: e.target.value })} placeholder="Item name" className={`flex-1 min-w-0 font-bold text-[14px] bg-transparent placeholder:text-ink-faint ${i.checked ? '' : 'line-through'}`} />
+                  <div className="flex-1 min-w-0">
+                    <input value={i.name} autoFocus={i.fresh && !i.name} onChange={(e) => updateItem(i.id, { name: e.target.value })} placeholder="Item name" className={`w-full font-bold text-[14px] bg-transparent placeholder:text-ink-faint ${i.checked ? '' : 'line-through'}`} />
+                    {i.discount > 0 && Number(i.price) === Math.round((i.original - i.discount) * 100) / 100 && (
+                      <p className="text-[11px] font-bold text-green truncate">{money(i.original, ec, { decimals: true })} − {money(i.discount, ec, { decimals: true })} discount</p>
+                    )}
+                  </div>
                   <div className="flex items-center gap-0.5 bg-cream rounded-xl px-2 h-9 w-[92px] shrink-0">
                     <span className="text-ink-faint font-bold text-[13px]">{expSym}</span>
                     <input inputMode="decimal" value={i.price} onChange={(e) => updateItem(i.id, { price: e.target.value.replace(/[^0-9.-]/g, '') })} placeholder="0" className="w-full bg-transparent font-bold text-[14px] text-right" />

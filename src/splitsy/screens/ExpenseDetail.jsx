@@ -118,6 +118,7 @@ export default function ExpenseDetail({ expenseId }) {
                     </span>
                   )}
                   {it.shared && <span className="block text-[11px] font-bold text-ink-faint">shared fairly</span>}
+                  {it.discount > 0 && <span className="block text-[11px] font-bold text-green">{money(it.original, e.original_currency || cur, { decimals: true })} − {money(it.discount, e.original_currency || cur, { decimals: true })} discount</span>}
                 </span>
                 <span className={`font-bold text-[14px] ${it.price < 0 ? 'text-green' : ''}`}>{money(it.price, e.original_currency || cur, { decimals: true })}</span>
               </div>

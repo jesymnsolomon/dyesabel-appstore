@@ -3,13 +3,16 @@ import { Sheet } from './ui'
 import Icon from './Icon'
 import { allCurrencies, POPULAR, currencySymbol, getRates } from '../lib/currency'
 
+/** Lowercase without accents, so "dong" finds "Đồng" and "colon" finds "Colón". */
+const plain = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase()
+
 /** Bottom sheet with every currency, searchable by code, name or symbol. */
 export function CurrencyPicker({ open, onClose, value, onPick, title = 'Choose a currency', note }) {
   const [q, setQ] = useState('')
   const list = useMemo(() => allCurrencies(), [])
-  const query = q.trim().toLowerCase()
+  const query = plain(q.trim())
   const filtered = query
-    ? list.filter((c) => c.code.toLowerCase().includes(query) || c.name.toLowerCase().includes(query) || c.symbol.toLowerCase() === query)
+    ? list.filter((c) => c.code.toLowerCase().includes(query) || plain(c.name).includes(query) || plain(c.symbol) === query || query.split(/\s+/).every((w) => plain(c.name).includes(w)))
     : list
   const popular = query ? [] : POPULAR.map((code) => list.find((c) => c.code === code)).filter(Boolean)
 
@@ -32,14 +35,22 @@ export function CurrencyPicker({ open, onClose, value, onPick, title = 'Choose a
   )
 
   return (
-    <Sheet open={open} onClose={onClose} title={title}>
-      {note && <p className="text-[13px] font-semibold text-ink-soft -mt-2 mb-3">{note}</p>}
-      <div className="sticky top-0 bg-paper pb-2 z-10">
-        <div className="relative">
-          <Icon name="search" size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-ink-faint" />
-          <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search: yen, USD, euro…" className="field pl-11" />
-        </div>
-      </div>
+    <Sheet
+      open={open}
+      onClose={() => { setQ(''); onClose() }}
+      title={title}
+      tall
+      header={
+        <>
+          {note && <p className="text-[13px] font-semibold text-ink-soft -mt-2 mb-3">{note}</p>}
+          <div className="relative pb-2">
+            <Icon name="search" size={18} className="absolute left-4 top-7 -translate-y-1/2 text-ink-faint" />
+            <input autoFocus={typeof window !== 'undefined' && !('ontouchstart' in window)} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search: yen, USD, dong…" className="field pl-11 pr-11" enterKeyHint="search" />
+            {q && <button type="button" onClick={() => setQ('')} className="absolute right-3 top-7 -translate-y-1/2 w-8 h-8 grid place-items-center text-ink-faint" aria-label="Clear search"><Icon name="close" size={16} /></button>}
+          </div>
+        </>
+      }
+    >
       {popular.length > 0 && (
         <>
           <p className="text-[12px] font-bold uppercase tracking-wider text-ink-faint px-3 mt-2 mb-1">Popular</p>

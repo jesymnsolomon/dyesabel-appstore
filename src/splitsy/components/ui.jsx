@@ -154,7 +154,38 @@ export function useObjectURL(file) {
   return url
 }
 
-export function Sheet({ open, onClose, children, title }) {
+/**
+ * Tracks the part of the screen not covered by the phone keyboard.
+ * iOS/Android keep "fixed" elements anchored behind the keyboard, so sheets
+ * use this to sit on top of it instead.
+ */
+export function useKeyboardSafeArea(active) {
+  const [area, setArea] = useState({ bottom: 0, height: null })
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!active || !vv) return
+    const update = () => {
+      const bottom = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      setArea({ bottom, height: vv.height })
+    }
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+    }
+  }, [active])
+  return area
+}
+
+/**
+ * Bottom sheet.
+ * - `tall`: fixed height (good for searchable lists, so the search box never jumps).
+ * - `header`: content pinned above the scrolling area (e.g. a search box).
+ */
+export function Sheet({ open, onClose, children, title, header, tall = false }) {
+  const kb = useKeyboardSafeArea(open)
   useEffect(() => {
     if (!open) return
     const prev = document.body.style.overflow
@@ -162,13 +193,21 @@ export function Sheet({ open, onClose, children, title }) {
     return () => { document.body.style.overflow = prev }
   }, [open])
   if (!open) return null
+  const avail = kb.height || (typeof window !== 'undefined' ? window.innerHeight : 800)
+  const maxH = Math.round(avail * 0.92)
+  const style = { bottom: kb.bottom, maxHeight: maxH, ...(tall && { height: Math.min(maxH, Math.round(avail * 0.86)) }) }
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       <div className="absolute inset-0 bg-ink/40 backdrop-blur-[2px] animate-[pop_.2s_ease-out_both]" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-paper rounded-t-[32px] px-5 pt-3 safe-bottom animate-rise max-h-[92dvh] overflow-y-auto">
-        <div className="w-10 h-1.5 rounded-full bg-line mx-auto mb-3" />
-        {title && <h3 className="font-display font-bold text-[20px] mb-4">{title}</h3>}
-        {children}
+      <div className="absolute left-0 right-0 mx-auto w-full max-w-md bg-paper rounded-t-[32px] animate-rise flex flex-col transition-[bottom] duration-150" style={style}>
+        <div className="px-5 pt-3 shrink-0">
+          <div className="w-10 h-1.5 rounded-full bg-line mx-auto mb-3" />
+          {title && <h3 className="font-display font-bold text-[20px] mb-4">{title}</h3>}
+          {header}
+        </div>
+        <div className={`px-5 overflow-y-auto overscroll-contain flex-1 min-h-0 ${kb.bottom > 0 ? 'pb-3' : 'safe-bottom'}`}>
+          {children}
+        </div>
       </div>
     </div>
   )
