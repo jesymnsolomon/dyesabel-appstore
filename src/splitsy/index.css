@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque", "Plus Jakarta Sans", ui-sans-serif, sans-serif;
+
+  --color-ink: #16131c;
+  --color-ink-soft: #6d6878;
+  --color-ink-faint: #a9a4b4;
+  --color-cream: #fff8ec;
+  --color-paper: #fffdf8;
+  --color-line: #efe9df;
+  --color-orange: #ff8a3d;
+  --color-pink: #ff6fb5;
+  --color-purple: #9b7bff;
+  --color-lilac: #ece6ff;
+  --color-yellow: #ffd23f;
+  --color-green: #2bbf6a;
+  --color-mint: #e2f8ec;
+  --color-sky: #3da9f5;
+  --color-red: #f0544f;
+
+  --shadow-card: 0 1px 0 rgba(22, 19, 28, 0.04), 0 12px 28px -18px rgba(22, 19, 28, 0.28);
+  --shadow-pop: 0 16px 36px -14px rgba(255, 111, 181, 0.55);
+  --shadow-ink: 0 14px 30px -12px rgba(22, 19, 28, 0.55);
+
+  --animate-float: float 3.2s ease-in-out infinite;
+  --animate-wiggle: wiggle 2.6s ease-in-out infinite;
+  --animate-pop: pop 0.42s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+  --animate-rise: rise 0.45s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  --animate-shimmer: shimmer 1.4s linear infinite;
+  --animate-confetti: confetti 1.6s ease-out forwards;
+}
+
+@keyframes float { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-8px) } }
+@keyframes wiggle { 0%, 100% { transform: rotate(-4deg) } 50% { transform: rotate(4deg) } }
+@keyframes pop { 0% { transform: scale(0.6); opacity: 0 } 100% { transform: scale(1); opacity: 1 } }
+@keyframes rise { 0% { transform: translateY(16px); opacity: 0 } 100% { transform: translateY(0); opacity: 1 } }
+@keyframes shimmer { 0% { background-position: -200% 0 } 100% { background-position: 200% 0 } }
+@keyframes confetti {
+  0% { transform: translate(0, 0) rotate(0); opacity: 1 }
+  100% { transform: translate(var(--x), var(--y)) rotate(var(--r)); opacity: 0 }
+}
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; background: var(--color-cream); }
+  body {
+    @apply bg-cream text-ink font-sans antialiased;
+    overscroll-behavior-y: none;
+  }
+  input, textarea, button, select { font: inherit; color: inherit; }
+  input:focus, textarea:focus { outline: none; }
+  ::selection { background: #ffd23f; }
+}
+
+@layer components {
+  .card { @apply bg-white rounded-[28px] shadow-card; }
+  .tap { @apply transition-transform duration-150 active:scale-[0.96] select-none; }
+  .field {
+    @apply w-full h-14 rounded-2xl bg-white border-2 border-line px-4 text-[16px] font-semibold placeholder:text-ink-faint placeholder:font-medium transition-colors focus:border-ink;
+  }
+  .grad-warm { background: linear-gradient(135deg, #ffb84d 0%, #ff6fb5 55%, #b18cff 100%); }
+  .grad-btn { background: linear-gradient(90deg, #ffa04d 0%, #ff6fb5 100%); }
+  .grad-text {
+    background: linear-gradient(90deg, #ff8a3d, #ff6fb5 50%, #9b7bff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .skeleton {
+    background: linear-gradient(90deg, #f3eee6 25%, #fbf8f3 50%, #f3eee6 75%);
+    background-size: 200% 100%;
+    @apply animate-shimmer rounded-2xl;
+  }
+  .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 16px); }
+  .safe-top { padding-top: max(env(safe-area-inset-top), 12px); }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { scrollbar-width: none; }
+}
