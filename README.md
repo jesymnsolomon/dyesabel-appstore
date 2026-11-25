@@ -41,6 +41,8 @@ With no Supabase keys it runs in **Demo mode**: everything works, but it's saved
    ```
 6. Restart `npm run dev`. The Demo badge disappears, and invite links now work across phones.
 
+> Already ran the SQL before the receipt scanner was added? Just run `supabase/schema.sql` again. It's safe to re-run and adds the new `items` column.
+
 ## 3. Deploy (Vercel or Netlify)
 
 - Build command: `npm run build` · Output folder: `dist`
@@ -63,6 +65,10 @@ With no Supabase keys it runs in **Demo mode**: everything works, but it's saved
   5. **Who's splitting**: equal or custom amounts (always adds up to the exact centavo)
   6. **Cash or card**, **online or in person**, auto **location** (OpenStreetMap), auto **date & time**, extra photos (receipts), note
   7. Review → Save → gets a **unique ID** like `SPL-7F3K9Q`
+- **Scan a receipt 🧾**: take a photo of a receipt and Splitsy reads it on the phone (Tesseract.js OCR, free, no key)
+  - Shows a **checklist of every item** (qty, name, price), all ticked. Untick what's not part of the split, fix any misread name/price, or add an item
+  - Discounts come in as negative lines and service charge as its own line. If the items don't match the printed total, it tells you and offers to add the difference
+  - Then **who paid the whole receipt**, who's splitting, details, and save. It's stored as one transaction with its item list (shown on the detail page)
 - **Group dashboard**
   - Total spending, your balance, friendly assistant tip
   - KPIs: your share, you paid, # of transactions, average bill, top spender, top category
@@ -101,6 +107,7 @@ media/                         ← original sticker artwork
 - `tailwindcss` v4 + `@tailwindcss/vite`
 - `@supabase/supabase-js` (auth, database, storage, realtime)
 - `@tensorflow/tfjs` + `@tensorflow-models/mobilenet` (photo recognition, loaded **only** when you scan)
+- `tesseract.js` (receipt reading, loaded **only** when you scan a receipt)
 
 No router, icon or animation libraries. Those are built in, so the app loads fast on mobile data.
 

@@ -6,17 +6,25 @@ import { api } from '../lib/api'
 import { navigate, back } from '../lib/router'
 import { identify, warmUpModel } from '../lib/ai'
 import { detectPlace } from '../lib/geo'
+import { scanReceipt } from '../lib/receipt'
 import { CATEGORIES, catInfo } from '../lib/categories'
 import { equalSplit } from '../lib/balances'
 import { money, firstName, fullDateTime, toCents, fromCents, CURRENCIES } from '../lib/format'
 
-const STEPS = ['photo', 'what', 'amount', 'payer', 'split', 'details', 'review']
+const PHOTO_STEPS = ['photo', 'what', 'amount', 'payer', 'split', 'details', 'review']
+const RECEIPT_STEPS = ['photo', 'items', 'payer', 'split', 'details', 'review']
 
 export default function AddExpense({ groupId }) {
   const { user } = useAuth()
   const toast = useToast()
   const [group, setGroup] = useState(null)
   const [step, setStep] = useState(0)
+  const [flow, setFlow] = useState('photo') // 'photo' | 'receipt'
+  const [scanning, setScanning] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [items, setItems] = useState([])
+  const [receiptTotal, setReceiptTotal] = useState(null)
+  const STEPS = flow === 'receipt' ? RECEIPT_STEPS : PHOTO_STEPS
   const [photo, setPhoto] = useState(null)
   const photoUrl = useObjectURL(photo)
   const [thinking, setThinking] = useState(false)
@@ -55,7 +63,9 @@ export default function AddExpense({ groupId }) {
 
   const cur = group?.currency || 'PHP'
   const sym = CURRENCIES[cur]?.symbol || '₱'
-  const total = Number(amount) || 0
+  const selectedItems = items.filter((i) => i.checked && Number(i.price))
+  const itemsSum = fromCents(selectedItems.reduce((s, i) => s + toCents(i.price), 0))
+  const total = flow === 'receipt' ? Math.max(0, itemsSum) : Number(amount) || 0
   const members = group?.members || []
   const byId = (id) => members.find((m) => m.id === id)
   const nameOf = (id) => (id === user.id ? 'You' : firstName(byId(id)?.name))
@@ -98,6 +108,31 @@ export default function AddExpense({ groupId }) {
     }
   }
 
+  // ---------- receipt → OCR → checklist ----------
+  const onReceipt = async (file) => {
+    setPhoto(file)
+    setFlow('receipt')
+    setStep(1)
+    setScanning(true)
+    setProgress(0)
+    try {
+      const r = await scanReceipt(file, setProgress)
+      setItems(r.items)
+      setReceiptTotal(r.total)
+      const p = place ?? (await Promise.race([placePromise.current, new Promise((res) => setTimeout(() => res(null), 1500))]))
+      setTitle((t) => t || r.store || p?.poi || 'Receipt')
+      setCategory(p?.venueCategory || 'Food')
+    } catch (e) {
+      console.warn('Receipt scan failed', e)
+      setItems([])
+      setTitle((t) => t || 'Receipt')
+    } finally {
+      setScanning(false)
+    }
+  }
+  const updateItem = (id, patch) => setItems((list) => list.map((i) => (i.id === id ? { ...i, ...patch } : i)))
+  const addItem = () => setItems((list) => [...list, { id: crypto.randomUUID?.() || String(Date.now()), name: '', qty: 1, price: '', checked: true, fresh: true }])
+
   const skipPhoto = async () => {
     setStep(1)
     const p = place === undefined ? await Promise.race([placePromise.current, new Promise((r) => setTimeout(() => r(null), 1500))]) : place
@@ -124,6 +159,7 @@ export default function AddExpense({ groupId }) {
         lat: place?.lat ?? null,
         lng: place?.lng ?? null,
         note: note.trim() || null,
+        ...(flow === 'receipt' && { items: selectedItems.map((i) => ({ name: i.name.trim() || 'Item', qty: Number(i.qty) || 1, price: Number(i.price) })) }),
       }
       const files = [photo, ...extras].filter(Boolean)
       const e = await api.createExpense(payload, files)
@@ -139,7 +175,11 @@ export default function AddExpense({ groupId }) {
   if (saved) return <Done expense={saved} group={group} onAnother={() => navigate(`/group/${groupId}/add?${Date.now()}`, { replace: true })} payer={nameOf(saved.paid_by)} />
 
   const key = STEPS[step]
-  const goBack = () => (step === 0 ? back(`/group/${groupId}`) : setStep(step - 1))
+  const goBack = () => {
+    if (step === 0) return back(`/group/${groupId}`)
+    if (step === 1 && flow === 'receipt') setFlow('photo')
+    setStep(step - 1)
+  }
   const info = catInfo(category)
 
   // ---------- step content ----------
@@ -150,15 +190,30 @@ export default function AddExpense({ groupId }) {
     body = (
       <div className="flex flex-col items-center pt-2">
         <PhotoInput onPick={onPhoto} className="tap w-full">
-          <div className="w-full aspect-[4/3.4] rounded-[32px] border-[3px] border-dashed border-ink/15 bg-white flex flex-col items-center justify-center gap-3">
+          <div className="w-full aspect-[16/10] rounded-[32px] border-[3px] border-dashed border-ink/15 bg-white flex flex-col items-center justify-center gap-3">
             <div className="w-20 h-20 rounded-full grad-btn grid place-items-center text-white shadow-pop"><Icon name="camera" size={34} /></div>
             <p className="font-display font-bold text-[19px]">Take a photo</p>
             <p className="text-[13px] font-semibold text-ink-faint -mt-2">pizza, shirt, grab ride, hotel…</p>
           </div>
         </PhotoInput>
-        <GalleryInput multiple={false} onPick={onPhoto} className="tap mt-4 h-11 px-5 rounded-full bg-white border-2 border-line font-bold text-[14px] flex items-center gap-2">
-          <Icon name="image" size={18} /> Choose from gallery
-        </GalleryInput>
+        <PhotoInput onPick={onReceipt} className="tap w-full mt-3">
+          <div className="card w-full p-4 flex items-center gap-3 text-left">
+            <span className="w-14 h-14 rounded-2xl bg-ink text-white grid place-items-center shrink-0"><Icon name="receipt" size={26} /></span>
+            <span className="flex-1">
+              <span className="block font-display font-bold text-[17px]">Scan a receipt</span>
+              <span className="block text-[13px] font-semibold text-ink-soft">I’ll read every item for you 🧾</span>
+            </span>
+            <Icon name="chevron" className="text-ink-faint" />
+          </div>
+        </PhotoInput>
+        <div className="flex gap-2 mt-4">
+          <GalleryInput multiple={false} onPick={onPhoto} className="tap h-11 px-4 rounded-full bg-white border-2 border-line font-bold text-[13px] flex items-center gap-1.5">
+            <Icon name="image" size={17} /> Photo from gallery
+          </GalleryInput>
+          <GalleryInput multiple={false} onPick={onReceipt} className="tap h-11 px-4 rounded-full bg-white border-2 border-line font-bold text-[13px] flex items-center gap-1.5">
+            <Icon name="receipt" size={17} /> Receipt from gallery
+          </GalleryInput>
+        </div>
       </div>
     )
     cta = <Button variant="ghost" size="md" className="w-full" onClick={skipPhoto}>No photo — I’ll type it</Button>
@@ -208,6 +263,78 @@ export default function AddExpense({ groupId }) {
     ctaOk = !thinking && title.trim().length > 0
   }
 
+  if (key === 'items') {
+    const found = items.filter((i) => !i.fresh).length
+    say = scanning ? 'Reading your receipt… 🧐' : found ? <>I found <span className="grad-text">{found} item{found === 1 ? '' : 's'}</span>! Untick anything not in this split</> : 'Hmm, I couldn’t read that one 😅'
+    sub = scanning ? 'Hold on, this takes a few seconds' : found ? 'Tap a name or price to fix it.' : 'Add the items yourself, or go back and retake the photo.'
+    mascot = 'cloudpurple'
+    const allOn = items.length > 0 && items.every((i) => i.checked)
+    const diff = receiptTotal != null ? fromCents(toCents(receiptTotal) - toCents(items.reduce((s, i) => s + (Number(i.price) || 0), 0))) : 0
+    body = (
+      <div className="flex flex-col gap-4">
+        {scanning ? (
+          <div className="relative rounded-[28px] overflow-hidden h-64 bg-white">
+            {photoUrl && <img src={photoUrl} alt="" className="w-full h-full object-cover" />}
+            <div className="absolute inset-0 bg-ink/30" />
+            <div className="absolute inset-x-0 h-1/3 bg-gradient-to-b from-transparent via-white/60 to-transparent animate-[scan_1.4s_ease-in-out_infinite]" />
+            <style>{'@keyframes scan{0%{top:-33%}100%{top:100%}}'}</style>
+            <div className="absolute left-4 right-4 bottom-4 bg-white rounded-2xl p-3">
+              <div className="flex justify-between text-[13px] font-bold"><span>Reading items</span><span>{Math.round(progress * 100)}%</span></div>
+              <div className="h-2 rounded-full bg-line mt-2 overflow-hidden"><div className="h-full grad-btn rounded-full transition-all duration-300" style={{ width: `${Math.max(4, progress * 100)}%` }} /></div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="card p-3 flex items-center gap-3">
+              {photoUrl && <img src={photoUrl} alt="" className="w-14 h-14 rounded-2xl object-cover shrink-0" />}
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-bold text-ink-faint uppercase tracking-wider">Store / title</p>
+                <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Jollibee" className="w-full font-display font-bold text-[18px] bg-transparent placeholder:text-ink-faint" />
+              </div>
+            </div>
+            <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-5 px-5">
+              {CATEGORIES.map((c) => (
+                <button key={c.name} onClick={() => setCategory(c.name)} className={`tap shrink-0 h-9 px-3 rounded-full border-2 font-bold text-[13px] ${category === c.name ? 'bg-ink border-ink text-white' : 'bg-white border-line'}`}>{c.emoji} {c.name}</button>
+              ))}
+            </div>
+
+            <div className="card overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+                <span className="font-bold text-[14px]">{selectedItems.length} of {items.length} selected</span>
+                {items.length > 0 && (
+                  <button onClick={() => setItems(items.map((i) => ({ ...i, checked: !allOn })))} className="text-[13px] font-bold text-pink">{allOn ? 'Unselect all' : 'Select all'}</button>
+                )}
+              </div>
+              {items.map((i) => (
+                <div key={i.id} className={`flex items-center gap-2 px-3 py-2.5 border-b border-line transition-opacity ${i.checked ? '' : 'opacity-45'}`}>
+                  <button onClick={() => updateItem(i.id, { checked: !i.checked })} className={`tap w-7 h-7 rounded-lg grid place-items-center border-2 shrink-0 transition-colors ${i.checked ? 'bg-green border-green text-white' : 'border-line bg-white'}`} aria-label="Toggle item">
+                    {i.checked && <Icon name="check" size={15} stroke={3} />}
+                  </button>
+                  {Number(i.qty) > 1 && <span className="text-[12px] font-bold text-ink-soft bg-cream rounded-md px-1.5 py-0.5 shrink-0">{i.qty}×</span>}
+                  <input value={i.name} autoFocus={i.fresh && !i.name} onChange={(e) => updateItem(i.id, { name: e.target.value })} placeholder="Item name" className={`flex-1 min-w-0 font-bold text-[14px] bg-transparent placeholder:text-ink-faint ${i.checked ? '' : 'line-through'}`} />
+                  <div className="flex items-center gap-0.5 bg-cream rounded-xl px-2 h-9 w-[92px] shrink-0">
+                    <span className="text-ink-faint font-bold text-[13px]">{sym}</span>
+                    <input inputMode="decimal" value={i.price} onChange={(e) => updateItem(i.id, { price: e.target.value.replace(/[^0-9.-]/g, '') })} placeholder="0" className="w-full bg-transparent font-bold text-[14px] text-right" />
+                  </div>
+                </div>
+              ))}
+              <button onClick={addItem} className="tap w-full flex items-center gap-2 px-4 py-3 font-bold text-[14px] text-ink-soft"><Icon name="plus" size={18} /> Add item</button>
+            </div>
+
+            {receiptTotal != null && Math.abs(diff) >= 0.01 && (
+              <div className="rounded-2xl bg-[#FFF7D6] px-4 py-3 text-[13px] font-semibold flex items-start gap-2">
+                <span>💡</span>
+                <span className="flex-1">The receipt total says <b>{money(receiptTotal, cur, { decimals: true })}</b> but the items add up to <b>{money(receiptTotal - diff, cur, { decimals: true })}</b>. Something may be missing or misread.</span>
+                {diff > 0 && <button onClick={() => setItems([...items, { id: String(Date.now()), name: 'Other items', qty: 1, price: diff.toFixed(2), checked: true }])} className="font-bold text-pink shrink-0">Add {money(diff, cur)}</button>}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    )
+    ctaOk = !scanning && title.trim().length > 0 && total > 0
+  }
+
   if (key === 'amount') {
     say = 'How much was it? 💸'
     sub = `Total for ${title.trim() || 'this'}`
@@ -246,7 +373,7 @@ export default function AddExpense({ groupId }) {
   }
 
   if (key === 'payer') {
-    say = 'Who paid for this one? 🙋'
+    say = flow === 'receipt' ? 'Who paid for the whole receipt? 🙋' : 'Who paid for this one? 🙋'
     sub = `${money(total, cur)} for ${title}`
     mascot = 'thumb'
     body = (
@@ -381,6 +508,7 @@ export default function AddExpense({ groupId }) {
           <Row label="Payment">{method === 'cash' ? '💵 Cash' : '💳 Card'} · {channel === 'online' ? 'Online' : 'In person'}</Row>
           <Row label="Place">{placeName || place?.name || '—'}</Row>
           <Row label="When">{fullDateTime(now)}</Row>
+          {flow === 'receipt' && <Row label="Items">🧾 {selectedItems.length} item{selectedItems.length === 1 ? '' : 's'}</Row>}
           <Row label="Photos">{[photo, ...extras].filter(Boolean).length || 'None'}</Row>
         </div>
       </div>
@@ -408,7 +536,7 @@ export default function AddExpense({ groupId }) {
       <div className="sticky bottom-0 px-5 pt-3 safe-bottom bg-gradient-to-t from-cream via-cream to-cream/0">
         {cta || (
           <Button className="w-full" disabled={!ctaOk} onClick={() => setStep(step + 1)}>
-            Next <Icon name="arrow" size={18} />
+            {key === 'items' && !scanning ? <>Next · {money(total, cur, { decimals: true })}</> : 'Next'} <Icon name="arrow" size={18} />
           </Button>
         )}
       </div>

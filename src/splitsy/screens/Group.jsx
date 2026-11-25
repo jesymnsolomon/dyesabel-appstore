@@ -394,7 +394,7 @@ export function ExpenseRow({ e, cur, nameOf }) {
       <div className="flex-1 min-w-0">
         <p className="font-bold text-[15px] truncate">{e.title}</p>
         <p className="text-[12px] font-semibold text-ink-soft truncate">
-          {settle ? 'Settlement' : `${nameOf(e.paid_by)} paid`} · {new Date(e.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+          {settle ? 'Settlement' : `${nameOf(e.paid_by)} paid`}{e.items?.length ? ` · 🧾 ${e.items.length} items` : ''} · {new Date(e.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
           {e.place_name ? ` · ${e.place_name}` : ''}
         </p>
       </div>

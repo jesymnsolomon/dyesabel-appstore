@@ -95,6 +95,28 @@ export default function ExpenseDetail({ expenseId }) {
         </div>
       </section>
 
+      {e.items?.length > 0 && (
+        <section className="px-5 mt-4">
+          <div className="card overflow-hidden">
+            <div className="flex items-center justify-between px-4 pt-4 pb-2">
+              <h2 className="font-display font-bold text-[17px]">🧾 Receipt items</h2>
+              <span className="text-[13px] font-bold text-ink-faint">{e.items.length}</span>
+            </div>
+            {e.items.map((it, i) => (
+              <div key={i} className="flex items-center gap-2 px-4 py-2.5 border-t border-line">
+                {it.qty > 1 && <span className="text-[12px] font-bold text-ink-soft bg-cream rounded-md px-1.5 py-0.5">{it.qty}×</span>}
+                <span className="flex-1 font-semibold text-[14px] truncate">{it.name}</span>
+                <span className={`font-bold text-[14px] ${it.price < 0 ? 'text-green' : ''}`}>{money(it.price, cur, { decimals: true })}</span>
+              </div>
+            ))}
+            <div className="flex items-center justify-between px-4 py-3 border-t-2 border-dashed border-line bg-cream/60">
+              <span className="font-bold text-[14px]">Total</span>
+              <span className="font-display font-extrabold text-[17px]">{money(e.amount, cur, { decimals: true })}</span>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="px-5 mt-4">
         <div className="card px-4">
           <Row icon="wallet" tint="#FFF1E6" color="#FF8A3D" label="Paid by">

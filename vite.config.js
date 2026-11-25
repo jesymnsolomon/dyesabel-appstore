@@ -18,6 +18,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           tf: ['@tensorflow/tfjs', '@tensorflow-models/mobilenet'],
+          ocr: ['tesseract.js'],
         },
       },
     },

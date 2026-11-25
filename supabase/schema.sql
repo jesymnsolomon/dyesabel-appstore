@@ -54,6 +54,9 @@ create table if not exists public.splitsy_expenses (
   created_by uuid not null default auth.uid() references public.splitsy_profiles(id),
   created_at timestamptz not null default now()
 );
+-- Receipt line items (added with the receipt scanner): [{ "name": text, "qty": int, "price": number }]
+alter table public.splitsy_expenses add column if not exists items jsonb not null default '[]'::jsonb;
+
 create index if not exists splitsy_expenses_group_idx on public.splitsy_expenses (group_id, created_at desc);
 
 -- ---------- Helpers ----------
