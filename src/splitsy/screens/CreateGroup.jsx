@@ -2,15 +2,17 @@ import { useState } from 'react'
 import { Screen, TopBar, Assistant, Button, MASCOTS, useToast } from '../components/ui'
 import { api } from '../lib/api'
 import { navigate } from '../lib/router'
-import { CURRENCIES } from '../lib/format'
+import { CurrencyPicker } from '../components/CurrencyPicker'
+import { currencySymbol, currencyName } from '../lib/currency'
 
-const IDEAS = ['Barkada Trip 🏝️', 'Roomies 🏠', 'Office Lunch 🍱', 'Date Nights 💕', 'Family Outing 🚐']
+const IDEAS = ['Barkada Trip', 'Roomies', 'Office Lunch', 'Date Nights', 'Family Outing']
 
 export default function CreateGroup() {
   const [name, setName] = useState('')
   const [mascot, setMascot] = useState('sun')
   const [currency, setCurrency] = useState('PHP')
   const [busy, setBusy] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const toast = useToast()
 
   const create = async () => {
@@ -51,18 +53,28 @@ export default function CreateGroup() {
         </div>
 
         <div className="animate-rise" style={{ animationDelay: '.1s' }}>
-          <p className="font-bold text-[14px] text-ink-soft mb-2.5">Currency</p>
-          <div className="flex gap-2 flex-wrap">
-            {Object.entries(CURRENCIES).map(([code, c]) => (
-              <button key={code} onClick={() => setCurrency(code)} className={`tap h-10 px-4 rounded-full border-2 font-bold text-[14px] ${currency === code ? 'bg-ink text-white border-ink' : 'bg-white border-line'}`}>
-                {c.symbol} {code}
+          <p className="font-bold text-[14px] text-ink-soft mb-2.5">Main currency</p>
+          <button onClick={() => setPickerOpen(true)} className="tap w-full card p-3.5 flex items-center gap-3 text-left">
+            <span className="w-12 h-12 rounded-2xl bg-cream grid place-items-center font-display font-extrabold text-[18px] shrink-0">{currencySymbol(currency)}</span>
+            <span className="flex-1">
+              <span className="block font-bold text-[16px]">{currencyName(currency)}</span>
+              <span className="block text-[12px] font-semibold text-ink-faint">{currency} · {currencySymbol(currency)} — tap to see all currencies</span>
+            </span>
+            <span className="text-ink-faint font-bold text-[13px]">Change</span>
+          </button>
+          <div className="flex gap-2 mt-2.5 overflow-x-auto no-scrollbar -mx-5 px-5">
+            {['PHP', 'USD', 'JPY', 'KRW', 'SGD', 'EUR', 'THB'].map((code) => (
+              <button key={code} onClick={() => setCurrency(code)} className={`tap shrink-0 h-9 px-3.5 rounded-full border-2 font-bold text-[13px] ${currency === code ? 'bg-ink text-white border-ink' : 'bg-white border-line'}`}>
+                {currencySymbol(code)} {code}
               </button>
             ))}
           </div>
+          <p className="text-[12px] font-semibold text-ink-faint mt-2">You can still add expenses in other currencies. Splitsy converts them for you.</p>
         </div>
       </div>
+      <CurrencyPicker open={pickerOpen} onClose={() => setPickerOpen(false)} value={currency} onPick={setCurrency} title="Group currency" />
       <div className="px-5 pt-6 safe-bottom">
-        <Button className="w-full" variant="grad" disabled={!name.trim()} loading={busy} onClick={create}>Create group 🎉</Button>
+        <Button className="w-full" variant="grad" disabled={!name.trim()} loading={busy} onClick={create}>Create group</Button>
       </div>
     </Screen>
   )

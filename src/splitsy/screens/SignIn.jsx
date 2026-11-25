@@ -33,7 +33,7 @@ export default function SignIn() {
     <Screen className="flex flex-col">
       <TopBar title="" onBack={() => navigate('/', { replace: true })} />
       <form onSubmit={submit} className="px-5 pt-4 flex-1 flex flex-col">
-        <Assistant mascot="heart" sub="Sign in to see your groups.">Welcome back! I missed you 💛</Assistant>
+        <Assistant mascot="heart" sub="Sign in to see your groups.">Welcome back! I missed you</Assistant>
         <div className="flex flex-col gap-3 mt-8 animate-rise">
           <input className="field" type="email" inputMode="email" autoComplete="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
           <div className="relative">

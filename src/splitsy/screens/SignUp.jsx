@@ -34,7 +34,7 @@ export default function SignUp() {
 
   const steps = [
     {
-      say: "Hi there! I'm Buddy 👋 What should I call you?",
+      say: "Hi there! I'm Buddy What should I call you?",
       sub: 'Your friends will see this name.',
       body: (
         <input autoFocus className="field text-[20px] h-16" placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && name.trim() && setStep(1)} />
@@ -42,7 +42,7 @@ export default function SignUp() {
       ok: name.trim().length > 0,
     },
     {
-      say: `Nice to meet you, ${firstName(name)}! Say cheese 📸`,
+      say: `Nice to meet you, ${firstName(name)}! Say cheese`,
       sub: 'Snap a selfie so friends know it’s you.',
       body: (
         <div className="flex flex-col items-center gap-4 pt-2">
@@ -63,7 +63,7 @@ export default function SignUp() {
       skip: !avatar,
     },
     {
-      say: 'Last thing! Let’s keep your account safe 🔒',
+      say: 'Last thing! Let’s keep your account safe',
       sub: 'You’ll use these to sign in.',
       body: (
         <div className="flex flex-col gap-3">
@@ -94,7 +94,7 @@ export default function SignUp() {
             {s.skip ? 'Skip for now' : 'Continue'} <Icon name="arrow" size={18} />
           </Button>
         ) : (
-          <Button variant="grad" disabled={!s.ok} loading={busy} onClick={submit}>Create my account 🎉</Button>
+          <Button variant="grad" disabled={!s.ok} loading={busy} onClick={submit}>Create my account</Button>
         )}
         <Button variant="ghost" size="sm" onClick={() => navigate('/signin', { replace: true })}>Already have an account? Sign in</Button>
       </div>

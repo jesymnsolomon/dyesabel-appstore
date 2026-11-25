@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { navigate } from '../lib/router'
 import { catInfo } from '../lib/categories'
 import { mapsLink } from '../lib/geo'
+import { formatRate } from '../lib/currency'
 import { money, fullDateTime, firstName } from '../lib/format'
 
 export default function ExpenseDetail({ expenseId }) {
@@ -71,7 +72,7 @@ export default function ExpenseDetail({ expenseId }) {
             ))}
           </div>
         ) : (
-          <div className="h-36 rounded-[28px] grid place-items-center text-[56px]" style={{ background: info.tint }}>{info.emoji}</div>
+          <div className="h-36 rounded-[28px] grid place-items-center text-[56px]" style={{ background: info.tint }}><Icon name={info.icon} size="1em" style={{ color: info.color }} /></div>
         )}
         <div className="flex gap-2 mt-3">
           <PhotoInput onPick={addPhotos} className="tap flex-1 h-11 rounded-full bg-white border-2 border-line font-bold text-[13px] flex items-center justify-center gap-1.5">
@@ -86,9 +87,12 @@ export default function ExpenseDetail({ expenseId }) {
       {/* Main */}
       <section className="px-5 mt-5">
         <div className="card p-5 text-center">
-          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-bold" style={{ background: info.tint }}>{info.emoji} {e.category}</span>
+          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-bold" style={{ background: info.tint }}><Icon name={info.icon} size="1em" style={{ color: info.color }} /> {e.category}</span>
           <h1 className="font-display font-bold text-[24px] mt-2 leading-tight">{e.title}</h1>
           <p className="font-display font-extrabold text-[44px] grad-text leading-tight">{money(e.amount, cur, { decimals: true })}</p>
+          {e.original_currency && (
+            <p className="text-[13px] font-bold text-purple -mt-0.5 flex items-center justify-center gap-1"><Icon name="convert" size={14} /> Paid {money(e.original_amount, e.original_currency, { decimals: true })} · 1 {e.original_currency} = {formatRate(Number(e.fx_rate), cur)}</p>
+          )}
           <button onClick={async () => { await navigator.clipboard?.writeText(e.ref); toast('ID copied') }} className="tap mt-1 inline-flex items-center gap-1.5 bg-cream rounded-full px-3 py-1.5 text-[13px] font-bold">
             <Icon name="hash" size={14} /> <span className="font-mono tracking-wide">{e.ref}</span> <Icon name="copy" size={13} className="text-ink-faint" />
           </button>
@@ -99,7 +103,7 @@ export default function ExpenseDetail({ expenseId }) {
         <section className="px-5 mt-4">
           <div className="card overflow-hidden">
             <div className="flex items-center justify-between px-4 pt-4 pb-2">
-              <h2 className="font-display font-bold text-[17px]">🧾 Receipt items</h2>
+              <h2 className="font-display font-bold text-[17px] flex items-center gap-2"><Icon name="receipt" size={18} /> Receipt items</h2>
               <span className="text-[13px] font-bold text-ink-faint">{e.items.length}</span>
             </div>
             {e.items.map((it, i) => (
@@ -115,12 +119,12 @@ export default function ExpenseDetail({ expenseId }) {
                   )}
                   {it.shared && <span className="block text-[11px] font-bold text-ink-faint">shared fairly</span>}
                 </span>
-                <span className={`font-bold text-[14px] ${it.price < 0 ? 'text-green' : ''}`}>{money(it.price, cur, { decimals: true })}</span>
+                <span className={`font-bold text-[14px] ${it.price < 0 ? 'text-green' : ''}`}>{money(it.price, e.original_currency || cur, { decimals: true })}</span>
               </div>
             ))}
             <div className="flex items-center justify-between px-4 py-3 border-t-2 border-dashed border-line bg-cream/60">
               <span className="font-bold text-[14px]">Total</span>
-              <span className="font-display font-extrabold text-[17px]">{money(e.amount, cur, { decimals: true })}</span>
+              <span className="font-display font-extrabold text-[17px]">{e.original_currency ? money(e.original_amount, e.original_currency, { decimals: true }) : money(e.amount, cur, { decimals: true })}</span>
             </div>
           </div>
         </section>
@@ -141,7 +145,7 @@ export default function ExpenseDetail({ expenseId }) {
           </Row>
           {e.note && <Row icon="edit" tint="#FFF7D6" color="#F5B700" label="Note">{e.note}</Row>}
         </div>
-        {e.place_address && <p className="text-[12px] text-ink-faint font-semibold mt-2 px-1">📍 {e.place_address}</p>}
+        {e.place_address && <p className="text-[12px] text-ink-faint font-semibold mt-2 px-1 flex items-center gap-1"><Icon name="pin" size={13} /> {e.place_address}</p>}
       </section>
 
       <section className="px-5 mt-5">
@@ -167,7 +171,7 @@ export default function ExpenseDetail({ expenseId }) {
 
       <Sheet open={confirmDel} onClose={() => setConfirmDel(false)}>
         <div className="text-center">
-          <p className="text-[44px]">🗑️</p>
+          <span className="w-16 h-16 rounded-full bg-[#fdecec] text-red grid place-items-center mx-auto"><Icon name="trash" size={28} /></span>
           <h3 className="font-display font-bold text-[22px] mt-1">Delete this transaction?</h3>
           <p className="text-ink-soft font-medium mt-1">Balances will be recalculated. This can’t be undone.</p>
         </div>

@@ -9,10 +9,12 @@ import { detectPlace } from '../lib/geo'
 import { scanReceipt } from '../lib/receipt'
 import { CATEGORIES, catInfo } from '../lib/categories'
 import { equalSplit, itemSplits } from '../lib/balances'
-import { money, firstName, fullDateTime, toCents, fromCents, CURRENCIES } from '../lib/format'
+import { money, firstName, fullDateTime, toCents, fromCents } from '../lib/format'
+import { CurrencyPicker, CurrencyChip, useRates } from '../components/CurrencyPicker'
+import { currencySymbol, rateBetween, round2, formatRate, niceNumber } from '../lib/currency'
 
-const SPLIT_MODES = [['equal', 'Equally'], ['custom', 'Custom']]
-const RECEIPT_MODES = [['items', 'By item'], ['equal', 'Equally'], ['custom', 'Custom']]
+const SPLIT_MODES = [['equal', 'Equally'], ['fixed', 'Fixed + rest'], ['custom', 'Custom']]
+const RECEIPT_MODES = [['items', 'By item'], ['equal', 'Equal'], ['fixed', 'Fixed+'], ['custom', 'Custom']]
 const PHOTO_STEPS = ['photo', 'what', 'amount', 'payer', 'split', 'details', 'review']
 const RECEIPT_STEPS = ['photo', 'items', 'payer', 'split', 'details', 'review']
 
@@ -38,6 +40,7 @@ export default function AddExpense({ groupId }) {
   const [people, setPeople] = useState([])
   const [mode, setMode] = useState('equal')
   const [custom, setCustom] = useState({})
+  const [fixed, setFixed] = useState({}) // { userId: { type: 'amount' | 'percent', value: '' } }
   const [method, setMethod] = useState('cash')
   const [channel, setChannel] = useState('in_person')
   const [place, setPlace] = useState(undefined) // undefined = detecting, null = unavailable
@@ -48,6 +51,9 @@ export default function AddExpense({ groupId }) {
   const [saved, setSaved] = useState(null)
   const [now] = useState(() => new Date().toISOString())
   const placePromise = useRef(null)
+  const [expCur, setExpCur] = useState(null) // currency the bill was paid in
+  const [manualRate, setManualRate] = useState('')
+  const [curPicker, setCurPicker] = useState(false)
 
   useEffect(() => {
     api.getGroup(groupId).then((g) => {
@@ -64,22 +70,61 @@ export default function AddExpense({ groupId }) {
   }, [groupId, toast])
 
   const cur = group?.currency || 'PHP'
-  const sym = CURRENCIES[cur]?.symbol || '₱'
+  const ec = expCur || cur
+  const foreign = ec !== cur
+  const expSym = currencySymbol(ec)
+  const { rates, error: rateError, loading: rateLoading } = useRates(foreign)
+  const liveRate = foreign ? rateBetween(rates, ec, cur) : 1
+  const rate = foreign ? Number(manualRate) || liveRate || 0 : 1
   const selectedItems = items.filter((i) => i.checked && Number(i.price))
   const itemsSum = fromCents(selectedItems.reduce((s, i) => s + toCents(i.price), 0))
-  const total = flow === 'receipt' ? Math.max(0, itemsSum) : Number(amount) || 0
+  const orig = flow === 'receipt' ? Math.max(0, itemsSum) : Number(amount) || 0 // in the bill's currency
+  const total = rate ? round2(orig * rate) : 0 // in the group's currency
   const members = group?.members || []
   const byId = (id) => members.find((m) => m.id === id)
   const nameOf = (id) => (id === user.id ? 'You' : firstName(byId(id)?.name))
 
   const everyone = useMemo(() => members.map((m) => m.id), [members])
+  // Fixed + rest: some people pay a set amount or %, everyone else shares what's left equally
+  const fixedInfo = useMemo(() => {
+    const totalC = toCents(orig)
+    const fixedC = {}
+    let sum = 0
+    for (const id of people) {
+      const f = fixed[id]
+      if (!f) continue
+      const v = Number(f.value) || 0
+      const c = f.type === 'percent' ? Math.round((totalC * v) / 100) : toCents(v)
+      fixedC[id] = c
+      sum += c
+    }
+    const equalIds = people.filter((id) => !(id in fixedC))
+    const rest = totalC - sum
+    return { fixedC, sum: fromCents(sum), rest: fromCents(rest), equalIds, each: equalIds.length && rest > 0 ? fromCents(rest / equalIds.length) : 0 }
+  }, [people, fixed, orig])
   const splits = useMemo(() => {
+    if (mode === 'fixed') {
+      const list = Object.entries(fixedInfo.fixedC).map(([user_id, c]) => ({ user_id, amount: fromCents(c) }))
+      if (fixedInfo.rest > 0 && fixedInfo.equalIds.length) list.push(...equalSplit(fixedInfo.rest, fixedInfo.equalIds))
+      return list
+    }
     if (mode === 'items') return itemSplits(selectedItems.map((i) => ({ ...i, price: Number(i.price) })), everyone)
-    if (mode === 'equal') return equalSplit(total, people)
+    if (mode === 'equal') return equalSplit(orig, people)
     return people.map((id) => ({ user_id: id, amount: Number(custom[id]) || 0 }))
-  }, [mode, total, people, custom, selectedItems, everyone])
+  }, [mode, orig, people, custom, selectedItems, everyone, fixedInfo])
   const splitSum = fromCents(splits.reduce((s, x) => s + toCents(x.amount), 0))
-  const remaining = fromCents(toCents(total) - toCents(splitSum))
+  const remaining = fromCents(toCents(orig) - toCents(splitSum))
+  // Convert each person's share to the group currency; the last one absorbs rounding so it adds up exactly
+  const savedSplits = useMemo(() => {
+    const list = splits.filter((x) => x.amount !== 0)
+    if (!foreign) return list
+    let given = 0
+    return list.map((x, k) => {
+      const c = k === list.length - 1 ? toCents(total) - given : Math.round(toCents(x.amount) * rate)
+      given += c
+      return { user_id: x.user_id, amount: fromCents(c) }
+    })
+  }, [splits, foreign, rate, total])
 
   // ---------- photo → AI ----------
   const onPhoto = async (file) => {
@@ -155,7 +200,8 @@ export default function AddExpense({ groupId }) {
         category,
         amount: total,
         paid_by: paidBy,
-        splits: splits.filter((s) => s.amount > 0),
+        splits: savedSplits,
+        ...(foreign && { original_currency: ec, original_amount: orig, fx_rate: rate }),
         split_mode: mode,
         payment_method: method,
         channel,
@@ -196,7 +242,7 @@ export default function AddExpense({ groupId }) {
   // ---------- step content ----------
   let say, sub, body, cta, ctaOk = true, mascot = group.mascot
   if (key === 'photo') {
-    say = `Hey ${firstName(user.name)}! What did you get? 📸`
+    say = `Hey ${firstName(user.name)}! What did you get?`
     sub = 'Snap the food, item, ticket or place — I’ll figure out the rest.'
     body = (
       <div className="flex flex-col items-center pt-2">
@@ -212,7 +258,7 @@ export default function AddExpense({ groupId }) {
             <span className="w-14 h-14 rounded-2xl bg-ink text-white grid place-items-center shrink-0"><Icon name="receipt" size={26} /></span>
             <span className="flex-1">
               <span className="block font-display font-bold text-[17px]">Scan a receipt</span>
-              <span className="block text-[13px] font-semibold text-ink-soft">I’ll read every item for you 🧾</span>
+              <span className="block text-[13px] font-semibold text-ink-soft">I’ll read every item for you</span>
             </span>
             <Icon name="chevron" className="text-ink-faint" />
           </div>
@@ -231,7 +277,7 @@ export default function AddExpense({ groupId }) {
   }
 
   if (key === 'what') {
-    say = thinking ? 'Hmm, let me take a look… 🔎' : suggestions.length ? <>Ooh! Looks like <span className="grad-text">{suggestions[0].title}</span> {catInfo(suggestions[0].category).emoji}</> : 'What was it for?'
+    say = thinking ? 'Hmm, let me take a look…' : suggestions.length ? <>Ooh! Looks like <span className="grad-text">{suggestions[0].title}</span> <Icon name={catInfo(suggestions[0].category).icon} size="1em" style={{ color: catInfo(suggestions[0].category).color }} /></> : 'What was it for?'
     sub = thinking ? 'Identifying your photo' : suggestions.length ? 'Tap a suggestion or type your own.' : 'Give it a short name and pick a category.'
     mascot = 'bubble'
     body = (
@@ -254,7 +300,7 @@ export default function AddExpense({ groupId }) {
               const on = s.title === title
               return (
                 <button key={s.title} onClick={() => { setTitle(s.title); setCategory(s.category) }} className={`tap h-11 pl-3 pr-4 rounded-full border-2 font-bold text-[14px] flex items-center gap-1.5 ${on ? 'bg-ink border-ink text-white' : 'bg-white border-line'}`}>
-                  <span>{catInfo(s.category).emoji}</span> {s.title} <span className={`font-semibold ${on ? 'text-white/60' : 'text-ink-faint'}`}>· {s.category}</span>
+                  <span><Icon name={catInfo(s.category).icon} size="1em" style={{ color: catInfo(s.category).color }} /></span> {s.title} <span className={`font-semibold ${on ? 'text-white/60' : 'text-ink-faint'}`}>· {s.category}</span>
                 </button>
               )
             })}
@@ -264,7 +310,7 @@ export default function AddExpense({ groupId }) {
         <div className="grid grid-cols-4 gap-2">
           {CATEGORIES.map((c) => (
             <button key={c.name} onClick={() => setCategory(c.name)} className={`tap h-[70px] rounded-2xl flex flex-col items-center justify-center gap-0.5 border-2 transition-colors ${category === c.name ? 'border-ink' : 'border-transparent'}`} style={{ background: c.tint }}>
-              <span className="text-[22px] leading-none">{c.emoji}</span>
+              <span className="text-[22px] leading-none"><Icon name={c.icon} size="1em" style={{ color: c.color }} /></span>
               <span className="text-[11px] font-bold">{c.name}</span>
             </button>
           ))}
@@ -276,7 +322,7 @@ export default function AddExpense({ groupId }) {
 
   if (key === 'items') {
     const found = items.filter((i) => !i.fresh).length
-    say = scanning ? 'Reading your receipt… 🧐' : found ? <>I found <span className="grad-text">{found} item{found === 1 ? '' : 's'}</span>! Untick anything not in this split</> : 'Hmm, I couldn’t read that one 😅'
+    say = scanning ? 'Reading your receipt…' : found ? <>I found <span className="grad-text">{found} item{found === 1 ? '' : 's'}</span>! Untick anything not in this split</> : 'Hmm, I couldn’t read that one'
     sub = scanning ? 'Hold on, this takes a few seconds' : found ? 'Tap a name or price to fix it.' : 'Add the items yourself, or go back and retake the photo.'
     mascot = 'cloudpurple'
     const allOn = items.length > 0 && items.every((i) => i.checked)
@@ -303,9 +349,14 @@ export default function AddExpense({ groupId }) {
                 <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Jollibee" className="w-full font-display font-bold text-[18px] bg-transparent placeholder:text-ink-faint" />
               </div>
             </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-bold text-ink-soft">Prices on this receipt are in</span>
+              <CurrencyChip code={ec} onClick={() => setCurPicker(true)} />
+            </div>
+            {foreign && conversionCard()}
             <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-5 px-5">
               {CATEGORIES.map((c) => (
-                <button key={c.name} onClick={() => setCategory(c.name)} className={`tap shrink-0 h-9 px-3 rounded-full border-2 font-bold text-[13px] ${category === c.name ? 'bg-ink border-ink text-white' : 'bg-white border-line'}`}>{c.emoji} {c.name}</button>
+                <button key={c.name} onClick={() => setCategory(c.name)} className={`tap shrink-0 h-9 px-3 rounded-full border-2 font-bold text-[13px] ${category === c.name ? 'bg-ink border-ink text-white' : 'bg-white border-line'}`}><Icon name={c.icon} size="1em" style={{ color: c.color }} /> {c.name}</button>
               ))}
             </div>
 
@@ -324,7 +375,7 @@ export default function AddExpense({ groupId }) {
                   {Number(i.qty) > 1 && <span className="text-[12px] font-bold text-ink-soft bg-cream rounded-md px-1.5 py-0.5 shrink-0">{i.qty}×</span>}
                   <input value={i.name} autoFocus={i.fresh && !i.name} onChange={(e) => updateItem(i.id, { name: e.target.value })} placeholder="Item name" className={`flex-1 min-w-0 font-bold text-[14px] bg-transparent placeholder:text-ink-faint ${i.checked ? '' : 'line-through'}`} />
                   <div className="flex items-center gap-0.5 bg-cream rounded-xl px-2 h-9 w-[92px] shrink-0">
-                    <span className="text-ink-faint font-bold text-[13px]">{sym}</span>
+                    <span className="text-ink-faint font-bold text-[13px]">{expSym}</span>
                     <input inputMode="decimal" value={i.price} onChange={(e) => updateItem(i.id, { price: e.target.value.replace(/[^0-9.-]/g, '') })} placeholder="0" className="w-full bg-transparent font-bold text-[14px] text-right" />
                   </div>
                 </div>
@@ -334,28 +385,31 @@ export default function AddExpense({ groupId }) {
 
             {receiptTotal != null && Math.abs(diff) >= 0.01 && (
               <div className="rounded-2xl bg-[#FFF7D6] px-4 py-3 text-[13px] font-semibold flex items-start gap-2">
-                <span>💡</span>
-                <span className="flex-1">The receipt total says <b>{money(receiptTotal, cur, { decimals: true })}</b> but the items add up to <b>{money(receiptTotal - diff, cur, { decimals: true })}</b>. Something may be missing or misread.</span>
-                {diff > 0 && <button onClick={() => setItems([...items, { id: String(Date.now()), name: 'Other items', qty: 1, price: diff.toFixed(2), checked: true }])} className="font-bold text-pink shrink-0">Add {money(diff, cur)}</button>}
+                <Icon name="idea" size={16} className="shrink-0 mt-0.5 text-[#E0A800]" />
+                <span className="flex-1">The receipt total says <b>{money(receiptTotal, ec, { decimals: true })}</b> but the items add up to <b>{money(receiptTotal - diff, ec, { decimals: true })}</b>. Something may be missing or misread.</span>
+                {diff > 0 && <button onClick={() => setItems([...items, { id: String(Date.now()), name: 'Other items', qty: 1, price: diff.toFixed(2), checked: true }])} className="font-bold text-pink shrink-0">Add {money(diff, ec)}</button>}
               </div>
             )}
           </>
         )}
       </div>
     )
-    ctaOk = !scanning && title.trim().length > 0 && total > 0
+    ctaOk = !scanning && title.trim().length > 0 && orig > 0 && rate > 0
   }
 
   if (key === 'amount') {
-    say = 'How much was it? 💸'
+    say = 'How much was it?'
     sub = `Total for ${title.trim() || 'this'}`
     mascot = 'sun'
     const n = people.length || 1
     body = (
       <div className="flex flex-col items-center pt-4">
-        <div className="w-16 h-16 rounded-3xl grid place-items-center text-[32px]" style={{ background: info.tint }}>{info.emoji}</div>
+        <div className="flex items-center gap-3">
+          <div className="w-14 h-14 rounded-3xl grid place-items-center text-[28px]" style={{ background: info.tint }}><Icon name={info.icon} size="1em" style={{ color: info.color }} /></div>
+          <CurrencyChip code={ec} onClick={() => setCurPicker(true)} />
+        </div>
         <label className="mt-4 flex items-baseline justify-center gap-1 w-full">
-          <span className="font-display font-extrabold text-[40px] text-ink-faint">{sym}</span>
+          <span className="font-display font-extrabold text-[40px] text-ink-faint">{expSym}</span>
           <input
             autoFocus
             inputMode="decimal"
@@ -368,24 +422,25 @@ export default function AddExpense({ groupId }) {
             className="font-display font-extrabold text-[64px] leading-none bg-transparent text-center w-[70%] min-w-0 placeholder:text-ink/15"
           />
         </label>
-        {total > 0 && (
+        {foreign && <div className="w-full mt-4">{conversionCard()}</div>}
+        {orig > 0 && (
           <p className="mt-4 bg-white rounded-full px-4 py-2 font-bold text-[14px] animate-pop">
-            That’s about <span className="grad-text">{money(total / n, cur, { decimals: true })}</span> each for {n} {n === 1 ? 'person' : 'people'}
+            That’s about <span className="grad-text">{money(orig / n, ec, { decimals: true })}</span> each for {n} {n === 1 ? 'person' : 'people'}
           </p>
         )}
         <div className="flex gap-2 mt-6 flex-wrap justify-center">
-          {[100, 250, 500, 1000, 2000].map((q) => (
-            <button key={q} onClick={() => setAmount(String(q))} className="tap h-10 px-4 rounded-full bg-white border-2 border-line font-bold text-[14px]">{money(q, cur)}</button>
+          {[100, 250, 500, 1000, 2000].map((v) => (foreign && rate ? niceNumber(v / rate) : v)).filter((v, i, a) => v && a.indexOf(v) === i).map((q) => (
+            <button key={q} onClick={() => setAmount(String(q))} className="tap h-10 px-4 rounded-full bg-white border-2 border-line font-bold text-[14px]">{money(q, ec)}</button>
           ))}
         </div>
       </div>
     )
-    ctaOk = total > 0
+    ctaOk = orig > 0 && rate > 0
   }
 
   if (key === 'payer') {
-    say = flow === 'receipt' ? 'Who paid for the whole receipt? 🙋' : 'Who paid for this one? 🙋'
-    sub = `${money(total, cur)} for ${title}`
+    say = flow === 'receipt' ? 'Who paid for the whole receipt?' : 'Who paid for this one?'
+    sub = `${money(orig, ec)} for ${title}`
     mascot = 'thumb'
     body = (
       <div className="grid grid-cols-3 gap-3">
@@ -406,18 +461,18 @@ export default function AddExpense({ groupId }) {
   }
 
   if (key === 'split') {
-    say = mode === 'items' ? 'Who had what? 🍽️' : 'Who’s splitting it? 🍰'
-    sub = mode === 'items' ? 'Tap faces to say who shared each item.' : mode === 'equal' ? 'Tap people to include or remove them.' : 'Type how much each person owes.'
+    say = mode === 'items' ? 'Who had what?' : 'Who’s splitting it?'
+    sub = mode === 'items' ? 'Tap faces to say who shared each item.' : mode === 'equal' ? 'Tap people to include or remove them.' : mode === 'fixed' ? 'Set a fixed amount or % for some people. The rest is split equally.' : 'Type how much each person owes.'
     mascot = 'strawberry'
     body = (
       <div className="flex flex-col gap-4">
         <div className="flex bg-white rounded-full p-1 border-2 border-line">
           {(flow === 'receipt' ? RECEIPT_MODES : SPLIT_MODES).map(([v, l]) => (
-            <button key={v} onClick={() => setMode(v)} className={`flex-1 h-10 rounded-full font-bold text-[14px] transition-colors ${mode === v ? 'bg-ink text-white' : 'text-ink-soft'}`}>{l}</button>
+            <button key={v} onClick={() => setMode(v)} className={`flex-1 h-10 rounded-full font-bold text-[13px] whitespace-nowrap transition-colors ${mode === v ? 'bg-ink text-white' : 'text-ink-soft'}`}>{l}</button>
           ))}
         </div>
         {mode === 'items' && (
-          <ItemAssign items={selectedItems} members={members} me={user.id} cur={cur} everyone={everyone} onChange={(id, ppl) => updateItem(id, { people: ppl })} />
+          <ItemAssign items={selectedItems} members={members} me={user.id} cur={ec} everyone={everyone} onChange={(id, ppl) => updateItem(id, { people: ppl })} />
         )}
         {mode === 'items' && (
           <div className="card p-4">
@@ -429,12 +484,12 @@ export default function AddExpense({ groupId }) {
                   <div key={m.id} className={`flex items-center gap-3 ${amt ? '' : 'opacity-40'}`}>
                     <Avatar user={m} size={32} />
                     <span className="flex-1 font-bold text-[14px]">{m.id === user.id ? 'Me' : m.name}</span>
-                    <span className="font-display font-bold text-[16px]">{money(amt, cur, { decimals: true })}</span>
+                    <span className="font-display font-bold text-[16px]">{money(amt, ec, { decimals: true })}</span>
                   </div>
                 )
               })}
             </div>
-            {selectedItems.some((i) => i.shared) && <p className="text-[12px] text-ink-soft font-semibold mt-3">✨ Service charge & discounts are shared based on what each person had.</p>}
+            {selectedItems.some((i) => i.shared) && <p className="text-[12px] text-ink-soft font-semibold mt-3"> Service charge & discounts are shared based on what each person had.</p>}
           </div>
         )}
         {mode !== 'items' && <div className="card divide-y divide-line overflow-hidden">
@@ -448,10 +503,32 @@ export default function AddExpense({ groupId }) {
                   <Avatar user={m} size={38} />
                   <span className={`font-bold text-[15px] truncate ${on ? '' : 'text-ink-faint'}`}>{m.id === user.id ? 'Me' : m.name}</span>
                 </button>
-                {on && mode === 'equal' && <span className="font-display font-bold text-[16px]">{money(share, cur, { decimals: true })}</span>}
+                {on && mode === 'equal' && <span className="font-display font-bold text-[16px]">{money(share, ec, { decimals: true })}</span>}
+                {on && mode === 'fixed' && (fixed[m.id] ? (
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <div className="flex items-center gap-1">
+                      <div className="flex bg-cream rounded-xl p-0.5">
+                        {[['amount', expSym], ['percent', '%']].map(([t, l]) => (
+                          <button key={t} onClick={() => setFixed({ ...fixed, [m.id]: { ...fixed[m.id], type: t } })} className={`h-8 min-w-8 px-1.5 rounded-lg text-[13px] font-bold ${fixed[m.id].type === t ? 'bg-ink text-white' : 'text-ink-soft'}`}>{l}</button>
+                        ))}
+                      </div>
+                      <input autoFocus inputMode="decimal" placeholder="0" value={fixed[m.id].value} onChange={(e) => setFixed({ ...fixed, [m.id]: { ...fixed[m.id], value: e.target.value.replace(/[^0-9.]/g, '') } })} className="w-16 h-9 rounded-xl bg-cream px-2 font-bold text-right text-[14px]" />
+                      <button onClick={() => { const n = { ...fixed }; delete n[m.id]; setFixed(n) }} className="w-7 h-7 rounded-full grid place-items-center text-ink-faint" aria-label="Back to equal share"><Icon name="close" size={15} stroke={2.6} /></button>
+                    </div>
+                    <span className="text-[11px] font-bold text-ink-soft pr-8">{fixed[m.id].type === 'percent' ? `= ${money(share, ec, { decimals: true })}` : 'fixed'}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-right">
+                      <span className="block font-display font-bold text-[15px]">{money(share, ec, { decimals: true })}</span>
+                      <span className="block text-[10px] font-bold text-ink-faint">equal share</span>
+                    </span>
+                    <button onClick={() => setFixed({ ...fixed, [m.id]: { type: 'amount', value: '' } })} className="tap h-8 px-2.5 rounded-full border-2 border-line bg-white text-[12px] font-bold">Set</button>
+                  </div>
+                ))}
                 {on && mode === 'custom' && (
                   <div className="flex items-center gap-1 bg-cream rounded-xl px-2 h-10 w-28">
-                    <span className="text-ink-faint font-bold">{sym}</span>
+                    <span className="text-ink-faint font-bold">{expSym}</span>
                     <input inputMode="decimal" placeholder="0" value={custom[m.id] ?? ''} onChange={(e) => setCustom({ ...custom, [m.id]: e.target.value.replace(/[^0-9.]/g, '') })} className="w-full bg-transparent font-bold text-right" />
                   </div>
                 )}
@@ -459,20 +536,43 @@ export default function AddExpense({ groupId }) {
             )
           })}
         </div>}
+        {mode === 'fixed' && (() => {
+          const { sum, rest, equalIds, each } = fixedInfo
+          const bad = rest < 0 || (rest > 0 && equalIds.length === 0)
+          return (
+            <div className={`card p-4 ${bad ? 'ring-2 ring-orange' : ''}`}>
+              <div className="flex justify-between text-[14px] font-semibold"><span className="text-ink-soft">Total</span><span className="font-bold">{money(orig, ec, { decimals: true })}</span></div>
+              <div className="flex justify-between text-[14px] font-semibold mt-1.5"><span className="text-ink-soft">Fixed contributions</span><span className="font-bold">− {money(sum, ec, { decimals: true })}</span></div>
+              <div className="h-px bg-line my-2.5" />
+              <div className="flex justify-between text-[15px]"><span className="font-bold">Left to split</span><span className="font-display font-extrabold">{money(Math.max(rest, 0), ec, { decimals: true })}</span></div>
+              {rest < 0 ? (
+                <p className="text-[13px] font-bold text-orange mt-2">The fixed amounts are {money(-rest, ec, { decimals: true })} more than the total. Lower one of them.</p>
+              ) : rest > 0 && equalIds.length === 0 ? (
+                <p className="text-[13px] font-bold text-orange mt-2">{money(rest, ec, { decimals: true })} isn’t covered. Tick someone to share the rest, or adjust a fixed amount.</p>
+              ) : rest > 0 ? (
+                <p className="text-[13px] font-bold text-green mt-2">÷ {equalIds.length} {equalIds.length === 1 ? 'person' : 'people'} = {money(each, ec, { decimals: true })} each</p>
+              ) : (
+                <p className="text-[13px] font-bold text-green mt-2">Fixed amounts cover the whole bill</p>
+              )}
+            </div>
+          )
+        })()}
         {mode === 'custom' && (
           <p className={`text-center font-bold text-[14px] ${remaining === 0 ? 'text-green' : 'text-orange'}`}>
-            {remaining === 0 ? 'Perfect, it adds up! ✅' : remaining > 0 ? `${money(remaining, cur, { decimals: true })} left to assign` : `${money(-remaining, cur, { decimals: true })} too much`}
+            {remaining === 0 ? 'Perfect, it adds up!' : remaining > 0 ? `${money(remaining, ec, { decimals: true })} left to assign` : `${money(-remaining, ec, { decimals: true })} too much`}
           </p>
         )}
       </div>
     )
     ctaOk = mode === 'items'
       ? selectedItems.every((i) => i.shared || !Array.isArray(i.people) || i.people.length > 0) && splits.length > 0
-      : people.length > 0 && (mode === 'equal' || remaining === 0)
+      : mode === 'fixed'
+        ? people.length > 0 && fixedInfo.rest >= 0 && (fixedInfo.rest === 0 || fixedInfo.equalIds.length > 0)
+        : people.length > 0 && (mode === 'equal' || remaining === 0)
   }
 
   if (key === 'details') {
-    say = 'Almost done! A few quick details ✨'
+    say = 'Almost done! A few quick details'
     sub = 'Date, time and place are filled in for you.'
     mascot = 'heart'
     body = (
@@ -522,7 +622,7 @@ export default function AddExpense({ groupId }) {
   }
 
   if (key === 'review') {
-    say = 'Here’s the summary. Looks good? 👀'
+    say = 'Here’s the summary. Looks good?'
     sub = 'Tap save and I’ll update everyone’s balance.'
     mascot = 'buddy'
     body = (
@@ -531,27 +631,52 @@ export default function AddExpense({ groupId }) {
           {photoUrl && <img src={photoUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-90" />}
         </div>
         <div className="-mt-9 flex flex-col items-center px-4">
-          <div className="w-[72px] h-[72px] rounded-full bg-white grid place-items-center text-[34px] ring-4 ring-white shadow-card" style={{ background: info.tint }}>{info.emoji}</div>
+          <div className="w-[72px] h-[72px] rounded-full bg-white grid place-items-center text-[34px] ring-4 ring-white shadow-card" style={{ background: info.tint }}><Icon name={info.icon} size="1em" style={{ color: info.color }} /></div>
           <p className="font-display font-bold text-[22px] mt-2 text-center">{title}</p>
           <p className="font-display font-extrabold text-[40px] grad-text leading-tight">{money(total, cur, { decimals: true })}</p>
+          {foreign && <p className="text-[13px] font-bold text-ink-soft -mt-0.5">Paid {money(orig, ec, { decimals: true })} · 1 {ec} = {formatRate(rate, cur)}</p>}
         </div>
         <div className="px-4 pb-4 mt-2">
-          <Row label="Category">{info.emoji} {category}</Row>
+          <Row label="Category"><span className="inline-flex items-center gap-1.5"><Icon name={info.icon} size={15} style={{ color: info.color }} />{category}</span></Row>
           <Row label="Paid by"><span className="flex items-center gap-2"><Avatar user={byId(paidBy)} size={22} />{nameOf(paidBy)}</span></Row>
-          <Row label="Split">{mode === 'items' ? `By item · ${splits.length} ${splits.length === 1 ? 'person' : 'people'}` : mode === 'equal' ? `Equally · ${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Custom amounts'}</Row>
-          <Row label="Payment">{method === 'cash' ? '💵 Cash' : '💳 Card'} · {channel === 'online' ? 'Online' : 'In person'}</Row>
+          <Row label="Split">{mode === 'items' ? `By item · ${splits.length} ${splits.length === 1 ? 'person' : 'people'}` : mode === 'fixed' ? `Fixed + rest · ${splits.length} ${splits.length === 1 ? 'person' : 'people'}` : mode === 'equal' ? `Equally · ${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Custom amounts'}</Row>
+          <Row label="Payment"><span className="inline-flex items-center gap-1.5"><Icon name={method === 'cash' ? 'cash' : 'card'} size={15} />{method === 'cash' ? 'Cash' : 'Card'} · {channel === 'online' ? 'Online' : 'In person'}</span></Row>
           <Row label="Place">{placeName || place?.name || '—'}</Row>
           <Row label="When">{fullDateTime(now)}</Row>
-          {flow === 'receipt' && <Row label="Items">🧾 {selectedItems.length} item{selectedItems.length === 1 ? '' : 's'}</Row>}
+          {flow === 'receipt' && <Row label="Items">{selectedItems.length} item{selectedItems.length === 1 ? '' : 's'}</Row>}
           <Row label="Photos">{[photo, ...extras].filter(Boolean).length || 'None'}</Row>
         </div>
       </div>
     )
-    cta = <Button variant="grad" className="w-full" loading={saving} onClick={save}>Save transaction 🎉</Button>
+    cta = <Button variant="grad" className="w-full" loading={saving} onClick={save}><Icon name="check" size={19} stroke={2.8} /> Save transaction</Button>
+  }
+
+  function conversionCard() {
+    return (
+      <div className="rounded-2xl bg-lilac px-4 py-3 text-left">
+        <div className="flex items-center gap-2 text-[13px] font-bold">
+          <Icon name="convert" size={16} className="text-purple" />
+          {rateLoading && !manualRate ? (
+            <span className="flex items-center gap-2 text-ink-soft"><Spinner size={14} /> Getting today’s rate…</span>
+          ) : rate ? (
+            <span className="flex-1">{orig > 0 ? <>{money(orig, ec, { decimals: true })} = <span className="text-purple">{money(total, cur, { decimals: true })}</span></> : <>Converts to {cur}</>}</span>
+          ) : (
+            <span className="flex-1 text-red">{rateError || 'No rate for this currency'}. Type the rate below.</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-2 text-[12px] font-semibold text-ink-soft">
+          <span>1 {ec} =</span>
+          <input inputMode="decimal" value={manualRate} onChange={(e) => setManualRate(e.target.value.replace(/[^0-9.]/g, ''))} placeholder={liveRate ? String(Number(liveRate.toPrecision(5))) : 'rate'} className="w-24 h-8 rounded-lg bg-white px-2 font-bold text-ink text-[13px]" />
+          <span>{cur}</span>
+          <span className="flex-1 text-right">{manualRate ? <button onClick={() => setManualRate('')} className="font-bold text-pink">Use live rate</button> : rates?.stale ? 'saved rate' : liveRate ? 'live rate' : ''}</span>
+        </div>
+      </div>
+    )
   }
 
   return (
     <Screen className="flex flex-col">
+      <CurrencyPicker open={curPicker} onClose={() => setCurPicker(false)} value={ec} onPick={(c) => { setExpCur(c); setManualRate('') }} title="What currency did you pay in?" note={`It’ll be converted to ${cur}, the group’s currency.`} />
       <div className="sticky top-0 z-30 bg-cream/85 backdrop-blur-xl safe-top">
         <div className="h-14 px-4 flex items-center gap-3">
           <button onClick={goBack} className="tap w-10 h-10 rounded-full bg-white shadow-card grid place-items-center" aria-label="Back"><Icon name={step === 0 ? 'close' : 'back'} /></button>
@@ -570,7 +695,7 @@ export default function AddExpense({ groupId }) {
       <div className="sticky bottom-0 px-5 pt-3 safe-bottom bg-gradient-to-t from-cream via-cream to-cream/0">
         {cta || (
           <Button className="w-full" disabled={!ctaOk} onClick={() => setStep(step + 1)}>
-            {key === 'items' && !scanning ? <>Next · {money(total, cur, { decimals: true })}</> : 'Next'} <Icon name="arrow" size={18} />
+            {key === 'items' && !scanning ? <>Next · {money(orig, ec, { decimals: true })}</> : 'Next'} <Icon name="arrow" size={18} />
           </Button>
         )}
       </div>
@@ -592,7 +717,7 @@ function ItemAssign({ items, members, me, cur, everyone, onChange }) {
               <span className={`font-display font-bold text-[15px] ${Number(it.price) < 0 ? 'text-green' : ''}`}>{money(Number(it.price), cur, { decimals: true })}</span>
             </div>
             {it.shared ? (
-              <p className="text-[12px] font-semibold text-ink-soft mt-1.5">✨ Shared fairly by everyone, based on what they had</p>
+              <p className="text-[12px] font-semibold text-ink-soft mt-1.5"> Shared fairly by everyone, based on what they had</p>
             ) : (
               <div className="flex items-center gap-2 mt-2.5 overflow-x-auto no-scrollbar">
                 <button onClick={() => onChange(it.id, all ? [] : everyone)} className={`tap shrink-0 h-9 px-3 rounded-full text-[12px] font-bold border-2 ${all ? 'bg-ink text-white border-ink' : 'bg-white border-line'}`}>
@@ -655,10 +780,10 @@ function Done({ expense, group, onAnother, payer }) {
       <div className="relative flex-1 flex flex-col items-center justify-center px-6 text-center">
         <Confetti />
         <Mascot name="thumb" size={150} anim="pop" />
-        <h1 className="font-display font-extrabold text-[34px] mt-4 animate-rise">All set! 🎉</h1>
+        <h1 className="font-display font-extrabold text-[34px] mt-4 animate-rise">All set!</h1>
         <p className="text-ink-soft font-medium mt-1 animate-rise">I’ve updated everyone’s balance.</p>
         <div className="card w-full mt-7 p-4 flex items-center gap-3 text-left animate-rise" style={{ animationDelay: '.1s' }}>
-          <div className="w-12 h-12 rounded-2xl grid place-items-center text-[24px] shrink-0" style={{ background: info.tint }}>{info.emoji}</div>
+          <div className="w-12 h-12 rounded-2xl grid place-items-center text-[24px] shrink-0" style={{ background: info.tint }}><Icon name={info.icon} size="1em" style={{ color: info.color }} /></div>
           <div className="flex-1 min-w-0">
             <p className="font-bold text-[16px] truncate">{expense.title}</p>
             <p className="text-[12px] text-ink-soft font-semibold">{payer} paid · <span className="font-mono">{expense.ref}</span></p>

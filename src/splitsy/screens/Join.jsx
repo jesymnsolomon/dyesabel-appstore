@@ -52,13 +52,13 @@ export default function Join({ code }) {
         </div>
         <p className="mt-6 text-ink-soft font-bold text-[14px] uppercase tracking-wider">You’re invited to</p>
         <h1 className="font-display font-extrabold text-[36px] leading-tight">{info.name}</h1>
-        <p className="text-ink-soft font-medium mt-1">{info.member_count} {Number(info.member_count) === 1 ? 'friend is' : 'friends are'} already here ✨</p>
+        <p className="text-ink-soft font-medium mt-1">{info.member_count} {Number(info.member_count) === 1 ? 'friend is' : 'friends are'} already here</p>
       </div>
       <div className="px-5 pt-6 safe-bottom flex flex-col gap-2">
         {info.is_member ? (
           <Button onClick={() => navigate(`/group/${info.id}`, { replace: true })}>You’re already in — open group</Button>
         ) : (
-          <Button variant="grad" loading={busy} onClick={join}>{user ? 'Join group 🎉' : 'Create account & join'}</Button>
+          <Button variant="grad" loading={busy} onClick={join}>{user ? 'Join group' : 'Create account & join'}</Button>
         )}
         {!user && <Button variant="ghost" size="sm" onClick={() => { setPendingJoin(code); navigate('/signin') }}>I already have an account</Button>}
       </div>

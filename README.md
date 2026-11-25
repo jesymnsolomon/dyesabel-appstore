@@ -41,7 +41,7 @@ With no Supabase keys it runs in **Demo mode**: everything works, but it's saved
    ```
 6. Restart `npm run dev`. The Demo badge disappears, and invite links now work across phones.
 
-> Already ran the SQL before the receipt scanner was added? Just run `supabase/schema.sql` again. It's safe to re-run and adds the new `items` column.
+> Already ran the SQL before? Just run `supabase/schema.sql` again. It's safe to re-run and adds the newer columns (`items`, `original_currency`, `original_amount`, `fx_rate`).
 
 ## 3. Deploy (Vercel or Netlify)
 
@@ -62,13 +62,18 @@ With no Supabase keys it runs in **Demo mode**: everything works, but it's saved
   2. Confirm/edit the name + category
   3. Amount (with "₱x each" preview)
   4. **Who paid**
-  5. **Who's splitting**: equal or custom amounts (always adds up to the exact centavo)
+  5. **Who's splitting**: equally, **Fixed + rest** (set some people's share as an amount or %, the rest is split equally between the others), or custom amounts. It always adds up to the exact centavo
   6. **Cash or card**, **online or in person**, auto **location** (OpenStreetMap), auto **date & time**, extra photos (receipts), note
   7. Review → Save → gets a **unique ID** like `SPL-7F3K9Q`
 - **Scan a receipt 🧾**: take a photo of a receipt and Splitsy reads it on the phone (Tesseract.js OCR, free, no key)
   - Shows a **checklist of every item** (qty, name, price), all ticked. Untick what's not part of the split, fix any misread name/price, or add an item
   - Discounts come in as negative lines and service charge as its own line. If the items don't match the printed total, it tells you and offers to add the difference
   - Then **who paid the whole receipt**, who's splitting, details, and save. It's stored as one transaction with its item list (shown on the detail page)
+- **Every currency + conversion 💱**
+  - Searchable list of all world currencies (popular ones first) when creating a group
+  - Add an expense or receipt in **another currency** (e.g. ¥ on a Japan trip). It converts to the group's currency at today's rate. You can also type your own rate. The original amount and rate are kept on the transaction
+  - **"View in"** switcher on the group dashboard and home screen shows all totals in any currency (display only; balances stay in the group's currency)
+  - Rates: open.er-api.com (free, no key), cached on the phone for 6 hours
 - **Group dashboard**
   - Total spending, your balance, friendly assistant tip
   - KPIs: your share, you paid, # of transactions, average bill, top spender, top category
@@ -104,11 +109,12 @@ media/                         ← original sticker artwork
 ## Packages (kept lean on purpose)
 
 - `react`, `react-dom`
+- `lucide-react` (all icons in the app)
 - `tailwindcss` v4 + `@tailwindcss/vite`
 - `@supabase/supabase-js` (auth, database, storage, realtime)
 - `@tensorflow/tfjs` + `@tensorflow-models/mobilenet` (photo recognition, loaded **only** when you scan)
 - `tesseract.js` (receipt reading, loaded **only** when you scan a receipt)
 
-No router, icon or animation libraries. Those are built in, so the app loads fast on mobile data.
+No router or animation libraries. Those are built in, so the app loads fast on mobile data.
 
 Artwork: "70s groovy elements" by Vecteezy (license in `media/`).

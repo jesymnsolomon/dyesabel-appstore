@@ -6,7 +6,7 @@ import { navigate, inviteLink } from '../lib/router'
 
 export async function shareInvite(group, toast) {
   const url = inviteLink(group.invite_code)
-  const text = `Join "${group.name}" on Splitsy so we can split bills easily 💸`
+  const text = `Join "${group.name}" on Splitsy so we can split bills easily`
   if (navigator.share) {
     try {
       await navigator.share({ title: 'Splitsy invite', text, url })

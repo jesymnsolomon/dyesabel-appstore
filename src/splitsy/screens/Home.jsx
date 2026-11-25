@@ -5,11 +5,15 @@ import { useAuth } from '../auth'
 import { api } from '../lib/api'
 import { navigate } from '../lib/router'
 import { greeting, firstName, money } from '../lib/format'
+import { CurrencyPicker, CurrencyChip, useRates, useViewCurrency } from '../components/CurrencyPicker'
+import { rateBetween } from '../lib/currency'
 
 export default function Home() {
   const { user } = useAuth()
   const [groups, setGroups] = useState(null)
   const [joinOpen, setJoinOpen] = useState(false)
+  const [curPicker, setCurPicker] = useState(false)
+  const [homeCur, setHomeCur] = useViewCurrency('home', null)
   const toast = useToast()
 
   useEffect(() => {
@@ -19,8 +23,18 @@ export default function Home() {
     })
   }, [toast])
 
-  const total = (groups || []).reduce((s, g) => s + g.total, 0)
-  const currency = groups?.[0]?.currency || 'PHP'
+  const currency = homeCur || groups?.[0]?.currency || 'PHP'
+  const mixed = (groups || []).some((g) => g.currency !== currency)
+  const { rates } = useRates(mixed)
+  // Convert every group's total into one currency so the sum makes sense
+  let total = 0
+  let missing = false
+  for (const g of groups || []) {
+    const r = rateBetween(rates, g.currency, currency)
+    if (g.currency === currency) total += g.total
+    else if (r) total += g.total * r
+    else if (g.total) missing = true
+  }
 
   return (
     <Screen className="pb-28">
@@ -35,7 +49,7 @@ export default function Home() {
       </header>
 
       <section className="px-5 mt-6 animate-rise">
-        <p className="text-ink-soft font-semibold text-[15px]">{greeting()}, {firstName(user?.name)} 👋</p>
+        <p className="text-ink-soft font-semibold text-[15px]">{greeting()}, {firstName(user?.name)}</p>
         <h1 className="font-display font-extrabold text-[34px] leading-[1.05] tracking-tight mt-1">
           Who are we <span className="grad-text">splitting</span>
           <br /> with today?
@@ -49,8 +63,9 @@ export default function Home() {
           <p className="text-white/85 font-bold text-[13px] uppercase tracking-wider">Across all groups</p>
           <p className="font-display font-extrabold text-white text-[40px] leading-tight mt-1">{groups ? money(total, currency) : '—'}</p>
           <p className="text-white/90 font-semibold text-[14px] pr-24">
-            {groups ? `${groups.length} group${groups.length === 1 ? '' : 's'} · fair & square` : 'Loading…'}
+            {groups ? `${groups.length} group${groups.length === 1 ? '' : 's'}${mixed ? (missing ? ' · some rates missing' : ' · converted') : ' · fair & square'}` : 'Loading…'}
           </p>
+          <div className="mt-2 relative"><CurrencyChip code={currency} dark onClick={() => setCurPicker(true)} /></div>
           <div className="flex gap-2 mt-4 relative">
             <button onClick={() => navigate('/new-group')} className="tap h-11 px-4 rounded-full bg-white text-ink font-bold text-[14px] flex items-center gap-1.5">
               <Icon name="plus" size={18} /> New group
@@ -108,6 +123,7 @@ export default function Home() {
       </section>
 
       <JoinSheet open={joinOpen} onClose={() => setJoinOpen(false)} />
+      <CurrencyPicker open={curPicker} onClose={() => setCurPicker(false)} value={currency} onPick={setHomeCur} title="Show totals in…" note="Groups in other currencies are converted at today’s rate." />
     </Screen>
   )
 }

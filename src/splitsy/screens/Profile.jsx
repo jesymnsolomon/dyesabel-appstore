@@ -60,7 +60,7 @@ export default function Profile() {
         <div className="card p-4 flex items-center gap-3">
           <Mascot name="flower" size={52} anim="wiggle" />
           <p className="flex-1 text-[13px] font-semibold text-ink-soft">
-            {api.mode === 'demo' ? 'Demo mode: everything is saved on this phone only. Connect Supabase to share groups with friends.' : 'Synced to the cloud — your friends see updates live ✨'}
+            {api.mode === 'demo' ? 'Demo mode: everything is saved on this phone only. Connect Supabase to share groups with friends.' : 'Synced to the cloud — your friends see updates live'}
           </p>
         </div>
       </section>

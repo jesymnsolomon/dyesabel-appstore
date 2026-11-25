@@ -1,4 +1,5 @@
 import { Screen, Mascot, Button } from '../components/ui'
+import Icon from '../components/Icon'
 import { navigate } from '../lib/router'
 import { api } from '../lib/api'
 
@@ -23,7 +24,7 @@ export default function Welcome() {
       </div>
 
       <div className="px-6 pt-4 safe-bottom flex flex-col gap-3">
-        <Button variant="grad" onClick={() => navigate('/signup')}>Let&apos;s get started ✨</Button>
+        <Button variant="grad" onClick={() => navigate('/signup')}>Let&apos;s get started <Icon name="sparkles" size={18} /></Button>
         <Button variant="ghost" size="md" onClick={() => navigate('/signin')}>I already have an account</Button>
         {api.mode === 'demo' && (
           <p className="text-center text-[12px] text-ink-faint font-semibold -mt-1">Demo mode · saved on this phone only</p>

@@ -225,7 +225,7 @@ export function ToastProvider({ children }) {
       {t && (
         <div key={t.k} className="fixed z-[60] left-0 right-0 top-0 safe-top px-4 flex justify-center pointer-events-none">
           <div className={`mt-2 animate-rise rounded-full px-5 py-3 font-bold text-[14px] shadow-ink flex items-center gap-2 max-w-sm ${t.kind === 'error' ? 'bg-red text-white' : 'bg-ink text-white'}`}>
-            {t.kind === 'error' ? '😵' : '✨'} {t.msg}
+            <Icon name={t.kind === 'error' ? 'alert' : 'sparkles'} size={17} /> {t.msg}
           </div>
         </div>
       )}

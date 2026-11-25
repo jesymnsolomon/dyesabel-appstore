@@ -57,6 +57,12 @@ create table if not exists public.splitsy_expenses (
 -- Receipt line items (added with the receipt scanner): [{ "name": text, "qty": int, "price": number }]
 alter table public.splitsy_expenses add column if not exists items jsonb not null default '[]'::jsonb;
 
+-- Foreign-currency expenses (added with currency conversion): amount is stored in the
+-- group's currency; these keep what was actually paid and the rate used.
+alter table public.splitsy_expenses add column if not exists original_currency text;
+alter table public.splitsy_expenses add column if not exists original_amount numeric(14,2);
+alter table public.splitsy_expenses add column if not exists fx_rate numeric(18,8);
+
 create index if not exists splitsy_expenses_group_idx on public.splitsy_expenses (group_id, created_at desc);
 
 -- ---------- Helpers ----------

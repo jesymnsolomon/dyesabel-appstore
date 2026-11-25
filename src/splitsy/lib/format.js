@@ -1,26 +1,30 @@
-export const CURRENCIES = {
-  PHP: { symbol: '₱', locale: 'en-PH' },
-  USD: { symbol: '$', locale: 'en-US' },
-  EUR: { symbol: '€', locale: 'de-DE' },
-  JPY: { symbol: '¥', locale: 'ja-JP' },
-  KRW: { symbol: '₩', locale: 'ko-KR' },
-  SGD: { symbol: 'S$', locale: 'en-SG' },
-}
+import { currencySymbol } from './currency'
 
 export const toCents = (n) => Math.round(Number(n || 0) * 100)
 export const fromCents = (c) => Math.round(c) / 100
 
+const digitsCache = {}
+function fractionDigits(code) {
+  if (digitsCache[code] != null) return digitsCache[code]
+  let d = 2
+  try { d = new Intl.NumberFormat('en', { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits } catch { /* ignore */ }
+  return (digitsCache[code] = d)
+}
+
+/** Formats any currency: ₱1,250 · $25.50 · ¥3,000 · CHF 12.40 */
 export function money(amount, currency = 'PHP', opts = {}) {
-  const c = CURRENCIES[currency] || CURRENCIES.PHP
   const n = Number(amount || 0)
+  const sym = currencySymbol(currency)
+  const digits = fractionDigits(currency)
   const compact = opts.compact && Math.abs(n) >= 10000
   const body = compact
-    ? new Intl.NumberFormat(c.locale, { notation: 'compact', maximumFractionDigits: 1 }).format(n)
-    : new Intl.NumberFormat(c.locale, {
-        minimumFractionDigits: Number.isInteger(n) && !opts.decimals ? 0 : 2,
-        maximumFractionDigits: 2,
+    ? new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(Math.abs(n))
+    : new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: Number.isInteger(n) && !opts.decimals ? 0 : digits,
+        maximumFractionDigits: digits,
       }).format(Math.abs(n))
-  return `${n < 0 && !compact ? '-' : ''}${c.symbol}${body}`
+  const gap = /[A-Za-z]$/.test(sym) ? ' ' : ''
+  return `${n < 0 ? '-' : ''}${sym}${gap}${body}`
 }
 
 export function dateTime(iso) {
