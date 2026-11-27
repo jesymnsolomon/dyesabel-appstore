@@ -67,3 +67,8 @@ self.addEventListener('notificationclick', (e) => {
     }),
   )
 })
+
+// "Resync app" in Profile asks a freshly downloaded version to take over right away
+self.addEventListener('message', (e) => {
+  if (e.data?.type === 'SKIP_WAITING') self.skipWaiting()
+})

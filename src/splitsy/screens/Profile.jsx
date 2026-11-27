@@ -6,6 +6,7 @@ import Icon from '../components/Icon'
 import { useAuth } from '../auth'
 import { api } from '../lib/api'
 import { navigate } from '../lib/router'
+import { resyncApp, buildLabel } from '../lib/resync'
 
 export default function Profile() {
   const { user, setUser, isAdmin } = useAuth()
@@ -13,6 +14,7 @@ export default function Profile() {
   const [name, setName] = useState(user.name)
   const [busy, setBusy] = useState(false)
   const [newAvatar, setNewAvatar] = useState(null)
+  const [syncing, setSyncing] = useState(false)
   const standalone = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone
 
   const update = async (patch) => {
@@ -86,6 +88,15 @@ export default function Profile() {
           <span className="flex-1 font-bold text-[15px]">Change password</span>
           <Icon name="chevron" className="text-ink-faint" />
         </button>
+        <button onClick={() => { setSyncing(true); resyncApp() }} disabled={syncing} className="tap w-full card p-4 flex items-center gap-3 text-left mt-3">
+          <span className="w-10 h-10 rounded-2xl bg-mint text-green grid place-items-center shrink-0"><Icon name="refresh" size={19} className={syncing ? 'animate-spin' : ''} /></span>
+          <span className="flex-1 min-w-0">
+            <span className="block font-bold text-[15px]">{syncing ? 'Getting the latest version…' : 'Resync app'}</span>
+            <span className="block text-[12px] font-semibold text-ink-faint">Loads the newest version and refreshes your groups. Your data stays.</span>
+          </span>
+          <Icon name="chevron" className="text-ink-faint" />
+        </button>
+        <p className="text-[12px] font-semibold text-ink-faint mt-2 px-1">Version: {buildLabel()}</p>
       </section>
 
       <section className="px-5 mt-8">

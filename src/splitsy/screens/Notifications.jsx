@@ -38,15 +38,15 @@ export default function Notifications() {
                   >
                     <div className="relative shrink-0">
                       <Avatar user={n.actor || { name: '?' }} size={42} />
-                      <span className={`absolute -right-1 -bottom-1 w-6 h-6 rounded-full grid place-items-center ring-2 ring-white ${n.kind === 'settlement' ? 'bg-green text-white' : 'bg-ink text-white'}`}>
-                        <Icon name={n.kind === 'settlement' ? 'handshake' : 'receipt'} size={12} />
+                      <span className={`absolute -right-1 -bottom-1 w-6 h-6 rounded-full grid place-items-center ring-2 ring-white ${n.kind === 'settlement' ? 'bg-green text-white' : n.kind === 'edit' ? 'bg-purple text-white' : 'bg-ink text-white'}`}>
+                        <Icon name={n.kind === 'settlement' ? 'handshake' : n.kind === 'edit' ? 'edit' : 'receipt'} size={12} />
                       </span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className={`text-[14px] leading-snug ${n.read_at ? 'font-semibold' : 'font-bold'}`}>{n.title}</p>
                       <p className="text-[13px] font-semibold text-ink-soft mt-0.5">{n.body}</p>
                       {n.share > 0 && n.kind !== 'settlement' && (
-                        <span className="inline-flex mt-1.5 h-6 px-2.5 rounded-full bg-lilac text-purple text-[12px] font-bold items-center">Your share: {money(n.share, n.body.split(' ')[0] || 'PHP', { decimals: true })}</span>
+                        <span className="inline-flex mt-1.5 h-6 px-2.5 rounded-full bg-lilac text-purple text-[12px] font-bold items-center">Your share: {money(n.share, n.body.match(/^[A-Z]{3}\b/)?.[0] || 'PHP', { decimals: true })}</span>
                       )}
                     </div>
                     <div className="flex flex-col items-end gap-1.5 shrink-0">

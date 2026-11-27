@@ -399,6 +399,7 @@ create or replace function public.splitsy_merge_profile(gid uuid, src uuid, dst 
 returns void language plpgsql security definer set search_path = public as $$
 declare s text := src::text; d text := dst::text;
 begin
+  perform set_config('splitsy.merging', '1', true); -- no "your share changed" notifications for a merge
   update splitsy_expenses set paid_by = dst where group_id = gid and paid_by = src;
 
   update splitsy_expenses e set splits = (
@@ -565,6 +566,83 @@ begin
   end loop;
   return new;
 end $$;
+
+-- ============================================================
+-- Notifications when a bill is edited
+-- Only people whose share changed (added, removed or a different amount),
+-- plus the old and new payer if who paid changed. One unread note per
+-- person per bill: a newer edit replaces the older unread one.
+-- ============================================================
+create or replace function public.splitsy_notify_expense_edit()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  actor_id uuid := coalesce(auth.uid(), new.created_by);
+  actor text;
+  grp text;
+  cur text;
+  payer text;
+  m record;
+  was numeric;
+  now_share numeric;
+  ttl text;
+  bdy text;
+  money text;
+begin
+  if coalesce(current_setting('splitsy.merging', true), '') = '1' then return new; end if;
+  select name into actor from splitsy_profiles where id = actor_id;
+  actor := coalesce(actor, 'Someone');
+  select name, currency into grp, cur from splitsy_groups where id = new.group_id;
+  select name into payer from splitsy_profiles where id = new.paid_by;
+  money := cur || ' ' || to_char(new.amount, 'FM999,999,990.00');
+
+  for m in
+    select sm.user_id from splitsy_members sm join splitsy_profiles p on p.id = sm.user_id
+    where sm.group_id = new.group_id and sm.user_id <> actor_id and not p.is_placeholder
+  loop
+    select coalesce(sum((x->>'amount')::numeric), 0) into was
+      from jsonb_array_elements(case when jsonb_typeof(old.splits) = 'array' then old.splits else '[]'::jsonb end) x
+      where x->>'user_id' = m.user_id::text;
+    select coalesce(sum((x->>'amount')::numeric), 0) into now_share
+      from jsonb_array_elements(case when jsonb_typeof(new.splits) = 'array' then new.splits else '[]'::jsonb end) x
+      where x->>'user_id' = m.user_id::text;
+
+    ttl := null;
+    bdy := money || ' in ' || grp;
+    if was = 0 and now_share <> 0 then
+      ttl := actor || ' added you to ' || new.title;
+    elsif was <> 0 and now_share = 0 then
+      ttl := actor || ' removed you from ' || new.title;
+      bdy := money || ' in ' || grp || ' · you no longer owe anything for it';
+    elsif round(was, 2) <> round(now_share, 2) then
+      ttl := actor || ' changed your share in ' || new.title;
+      bdy := cur || ' ' || to_char(was, 'FM999,999,990.00') || ' → ' || cur || ' ' || to_char(now_share, 'FM999,999,990.00') || ' in ' || grp;
+    end if;
+
+    if old.paid_by is distinct from new.paid_by then
+      if m.user_id = new.paid_by then
+        ttl := coalesce(ttl, actor || ' set you as the payer of ' || new.title);
+        if ttl not like '%payer%' then bdy := bdy || ' · you’re now the payer'; end if;
+      elsif m.user_id = old.paid_by then
+        ttl := coalesce(ttl, actor || ' changed who paid ' || new.title);
+        bdy := bdy || ' · now paid by ' || coalesce(payer, 'someone else');
+      end if;
+    end if;
+
+    if ttl is not null then
+      delete from splitsy_notifications
+        where user_id = m.user_id and expense_id = new.id and kind = 'edit' and read_at is null;
+      insert into splitsy_notifications (user_id, actor_id, group_id, expense_id, kind, title, body, share)
+      values (m.user_id, actor_id, new.group_id, new.id, 'edit', ttl, bdy, nullif(now_share, 0));
+    end if;
+  end loop;
+  return new;
+end $$;
+drop trigger if exists splitsy_expense_edit_notify on public.splitsy_expenses;
+create trigger splitsy_expense_edit_notify
+  after update of splits, paid_by on public.splitsy_expenses
+  for each row
+  when (old.splits is distinct from new.splits or old.paid_by is distinct from new.paid_by)
+  execute function public.splitsy_notify_expense_edit();
 
 -- Tell the API about the new columns/functions right away
 notify pgrst, 'reload schema';

@@ -1,6 +1,7 @@
 // Splitsy push notifications (Supabase Edge Function).
-// Called by the app right after someone adds a transaction. Sends a phone
-// notification to every other group member who turned notifications on.
+// Called by the app right after someone adds a transaction (everyone else in
+// the group is notified) or edits who pays for one (only people whose share
+// changed). Sends a phone notification to those who turned notifications on.
 //
 // Secrets it needs (Supabase → Edge Functions → Secrets):
 //   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (e.g. mailto:you@example.com)
@@ -18,7 +19,7 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   try {
-    const { expense_id } = await req.json()
+    const { expense_id, edit = false } = await req.json()
     if (!expense_id) return json({ error: 'expense_id is required' }, 400)
 
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
@@ -30,13 +31,22 @@ Deno.serve(async (req) => {
     if (!caller) return json({ error: 'Not signed in' }, 401)
 
     const { data: exp } = await admin.from('splitsy_expenses').select('id, created_by, group_id').eq('id', expense_id).single()
-    if (!exp || exp.created_by !== caller.id) return json({ error: 'Not allowed' }, 403)
+    if (!exp) return json({ error: 'Not found' }, 404)
+    if (edit) {
+      // anyone in the group can edit a bill, so any member can send its edit notifications
+      const { data: member } = await admin.from('splitsy_members').select('user_id').eq('group_id', exp.group_id).eq('user_id', caller.id).maybeSingle()
+      if (!member) return json({ error: 'Not allowed' }, 403)
+    } else if (exp.created_by !== caller.id) {
+      return json({ error: 'Not allowed' }, 403)
+    }
 
-    // The database already created one notification per member (see schema.sql)
-    const { data: notes } = await admin
-      .from('splitsy_notifications')
-      .select('user_id, title, body, share, expense_id')
-      .eq('expense_id', expense_id)
+    // The database already created the notifications (see schema.sql).
+    // New bill: the ones made when it was added. Edit: the ones this person's edit just made.
+    let query = admin.from('splitsy_notifications').select('user_id, title, body, share, expense_id').eq('expense_id', expense_id)
+    query = edit
+      ? query.eq('kind', 'edit').eq('actor_id', caller.id).gte('created_at', new Date(Date.now() - 2 * 60 * 1000).toISOString())
+      : query.neq('kind', 'edit')
+    const { data: notes } = await query
     if (!notes?.length) return json({ sent: 0 })
 
     const { data: subs } = await admin.from('splitsy_push_subscriptions').select('*').in('user_id', notes.map((n) => n.user_id))

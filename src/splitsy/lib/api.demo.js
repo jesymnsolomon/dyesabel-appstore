@@ -65,6 +65,35 @@ function addNotifications(db, e) {
     setTimeout(() => noteListeners.forEach((cb) => cb(n)), 0)
   }
 }
+// Same as the edit trigger in schema.sql: tell people whose share (or payer status) changed
+function addEditNotifications(db, before, e) {
+  const actorId = me() || e.created_by
+  const actor = db.users.find((u) => u.id === actorId)?.name || 'Someone'
+  const g = db.groups.find((x) => x.id === e.group_id)
+  if (!g) return
+  const fmt = (v) => `${g.currency} ${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const shareOf = (splits, id) => Math.round((splits || []).filter((s) => s.user_id === id).reduce((t, s) => t + Number(s.amount), 0) * 100) / 100
+  const payer = db.users.find((u) => u.id === e.paid_by)?.name || 'someone else'
+  db.notifications = db.notifications || []
+  for (const m of db.members.filter((x) => x.group_id === e.group_id && x.user_id !== actorId && !db.users.find((u) => u.id === x.user_id)?.is_placeholder)) {
+    const was = shareOf(before.splits, m.user_id)
+    const now = shareOf(e.splits, m.user_id)
+    let title = null
+    let body = `${fmt(e.amount)} in ${g.name}`
+    if (!was && now) title = `${actor} added you to ${e.title}`
+    else if (was && !now) { title = `${actor} removed you from ${e.title}`; body += ' · you no longer owe anything for it' }
+    else if (was !== now) { title = `${actor} changed your share in ${e.title}`; body = `${fmt(was)} → ${fmt(now)} in ${g.name}` }
+    if (before.paid_by !== e.paid_by) {
+      if (m.user_id === e.paid_by) { if (title) body += ' · you’re now the payer'; else title = `${actor} set you as the payer of ${e.title}` }
+      else if (m.user_id === before.paid_by) { title = title || `${actor} changed who paid ${e.title}`; body += ` · now paid by ${payer}` }
+    }
+    if (!title) continue
+    db.notifications = db.notifications.filter((n) => !(n.user_id === m.user_id && n.expense_id === e.id && n.kind === 'edit' && !n.read_at))
+    const n = { id: uuid(), user_id: m.user_id, actor_id: actorId, group_id: e.group_id, expense_id: e.id, kind: 'edit', title, body, share: now || null, read_at: null, created_at: new Date().toISOString() }
+    db.notifications.push(n)
+    setTimeout(() => noteListeners.forEach((cb) => cb(n)), 0)
+  }
+}
 const ping = (gid) => groupListeners.get(gid)?.forEach((cb) => cb())
 
 const me = () => localStorage.getItem(SESSION)
@@ -314,7 +343,9 @@ export const demoApi = {
     const db = await load()
     const e = db.expenses.find((x) => x.id === id)
     if (!e) throw new Error('Transaction not found')
+    const before = { splits: e.splits, paid_by: e.paid_by }
     Object.assign(e, patch, { updated_at: new Date().toISOString() })
+    if (JSON.stringify(before.splits) !== JSON.stringify(e.splits) || before.paid_by !== e.paid_by) addEditNotifications(db, before, e)
     await save(db)
     ping(e.group_id)
     return e

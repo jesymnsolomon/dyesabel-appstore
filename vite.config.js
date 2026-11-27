@@ -9,6 +9,8 @@ import { resolve } from 'node:path'
 // then add it to `input` below.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // when this version was built (shown in Profile → Resync app)
+  define: { __SPLITSY_BUILD__: JSON.stringify(new Date().toISOString()) },
   build: {
     rollupOptions: {
       input: {

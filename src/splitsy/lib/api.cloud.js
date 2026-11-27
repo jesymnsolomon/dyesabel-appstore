@@ -186,7 +186,10 @@ export const cloudApi = {
     return saved
   },
   async updateExpense(id, patch) {
-    return check(await supabase.from(T.expenses).update(patch).eq('id', id).select().single())
+    const saved = check(await supabase.from(T.expenses).update(patch).eq('id', id).select().single())
+    // who pays changed: the database told the people affected; also ping their phones
+    if ('splits' in patch || 'paid_by' in patch) cloudApi.sendPush(id, { edit: true })
+    return saved
   },
   async addPhotos(expense, files) {
     const photos = [...(expense.photos || [])]
@@ -231,8 +234,8 @@ export const cloudApi = {
   async deletePushSubscription(endpoint) {
     check(await supabase.from('splitsy_push_subscriptions').delete().eq('endpoint', endpoint))
   },
-  sendPush(expenseId) {
-    supabase.functions.invoke('splitsy-notify', { body: { expense_id: expenseId } }).catch(() => {})
+  sendPush(expenseId, { edit = false } = {}) {
+    supabase.functions.invoke('splitsy-notify', { body: { expense_id: expenseId, edit } }).catch(() => {})
   },
   pushAvailable: Boolean(import.meta.env.VITE_VAPID_PUBLIC_KEY),
 
