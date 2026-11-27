@@ -24,7 +24,7 @@ export default function ScanningScreen({ photoUrl, progress = 0, onCancel, kind 
   const idx = stages.indexOf(current)
   const pct = Math.max(3, Math.min(100, Math.round(progress * 100)))
   return (
-    <div className="fixed inset-0 z-50 bg-cream flex flex-col animate-[pop_.2s_ease-out_both]" role="status" aria-live="polite">
+    <div className="fixed inset-0 z-50 bg-white flex flex-col animate-[pop_.2s_ease-out_both]" role="status" aria-live="polite">
       <style>{'@keyframes scanbeam{0%{top:-30%}100%{top:100%}}'}</style>
       <div className="safe-top" />
       <div className="flex-1 w-full max-w-md mx-auto px-6 flex flex-col items-center justify-center">

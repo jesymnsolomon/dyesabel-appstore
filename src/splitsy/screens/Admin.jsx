@@ -60,7 +60,7 @@ export default function Admin() {
   return (
     <div className="min-h-[100dvh] w-full max-w-6xl mx-auto pb-16">
       {/* Header */}
-      <div className="sticky top-0 z-30 bg-cream/90 backdrop-blur-xl safe-top">
+      <div className="sticky top-0 z-30 bg-white/90 backdrop-blur-xl safe-top">
         <div className="px-4 md:px-8 h-16 flex items-center gap-3">
           <button onClick={() => navigate('/')} className="tap w-10 h-10 rounded-full bg-white shadow-card grid place-items-center" aria-label="Back to app"><Icon name="back" /></button>
           <img src="/apps/splitsy/logo.svg" alt="" className="w-9 h-8 object-contain" />

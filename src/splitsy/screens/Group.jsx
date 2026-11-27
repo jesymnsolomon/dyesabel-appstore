@@ -71,7 +71,7 @@ export default function Group({ groupId }) {
   return (
     <Screen className="pb-32">
       {/* Header */}
-      <div className="sticky top-0 z-30 bg-cream/85 backdrop-blur-xl safe-top">
+      <div className="sticky top-0 z-30 bg-white/85 backdrop-blur-xl safe-top">
         <div className="h-14 px-4 flex items-center gap-3">
           <button onClick={() => back('/')} className="tap w-10 h-10 rounded-full bg-white shadow-card grid place-items-center" aria-label="Back"><Icon name="back" /></button>
           <h1 className="flex-1 font-display font-bold text-[18px] truncate">{group.name}</h1>
@@ -133,7 +133,7 @@ export default function Group({ groupId }) {
 
       {/* Floating add button */}
       <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none">
-        <div className="max-w-md mx-auto px-5 safe-bottom pt-6 bg-gradient-to-t from-cream via-cream/90 to-cream/0">
+        <div className="max-w-md mx-auto px-5 safe-bottom pt-6 bg-gradient-to-t from-white via-white/90 to-white/0">
           <Button variant="dark" className="w-full pointer-events-auto" onClick={() => navigate(`/group/${group.id}/add`)}>
             <span className="w-7 h-7 rounded-full grad-btn grid place-items-center"><Icon name="camera" size={16} /></span>
             Add expense

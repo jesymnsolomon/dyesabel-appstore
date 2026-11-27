@@ -732,7 +732,7 @@ export default function AddExpense({ groupId }) {
         }}
       />
       <CurrencyPicker open={curPicker} onClose={() => setCurPicker(false)} value={ec} onPick={(c) => { setExpCur(c); setManualRate('') }} title="What currency did you pay in?" note={`It’ll be converted to ${cur}, the group’s currency.`} />
-      <div className="sticky top-0 z-30 bg-cream/85 backdrop-blur-xl safe-top">
+      <div className="sticky top-0 z-30 bg-white/85 backdrop-blur-xl safe-top">
         <div className="h-14 px-4 flex items-center gap-3">
           <button onClick={goBack} className="tap w-10 h-10 rounded-full bg-white shadow-card grid place-items-center" aria-label="Back"><Icon name={step === 0 ? 'close' : 'back'} /></button>
           <div className="flex-1 h-2.5 rounded-full bg-ink/10 overflow-hidden">
@@ -747,7 +747,7 @@ export default function AddExpense({ groupId }) {
         <div className="animate-rise pb-4" style={{ animationDelay: '.06s' }}>{body}</div>
       </div>
 
-      <div className="sticky bottom-0 px-5 pt-3 safe-bottom bg-gradient-to-t from-cream via-cream to-cream/0">
+      <div className="sticky bottom-0 px-5 pt-3 safe-bottom bg-gradient-to-t from-white via-white to-white/0">
         {cta || (
           <Button className="w-full" disabled={!ctaOk} onClick={() => setStep(step + 1)}>
             {key === 'items' && !scanning ? <>Next · {money(orig, ec, { decimals: true })}</> : 'Next'} <Icon name="arrow" size={18} />

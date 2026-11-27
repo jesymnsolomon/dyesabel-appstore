@@ -102,7 +102,7 @@ export function Spinner({ light, size = 20 }) {
 
 export function TopBar({ title, onBack, right, fallback = '/' }) {
   return (
-    <div className="sticky top-0 z-30 bg-cream/85 backdrop-blur-xl safe-top">
+    <div className="sticky top-0 z-30 bg-white/85 backdrop-blur-xl safe-top">
       <div className="h-14 px-4 flex items-center gap-3">
         <button onClick={onBack || (() => back(fallback))} className="tap w-10 h-10 rounded-full bg-white shadow-card grid place-items-center" aria-label="Back">
           <Icon name="back" />
@@ -225,7 +225,7 @@ export function Sheet({ open, onClose, children, title, header, tall = false }) 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
       <div className="absolute inset-0 bg-ink/40 backdrop-blur-[2px] animate-[pop_.2s_ease-out_both]" onClick={onClose} />
-      <div className="absolute left-0 right-0 mx-auto w-full max-w-md bg-paper rounded-t-[32px] animate-rise flex flex-col transition-[bottom] duration-150" style={style}>
+      <div className="absolute left-0 right-0 mx-auto w-full max-w-md bg-white rounded-t-[32px] animate-rise flex flex-col transition-[bottom] duration-150" style={style}>
         <div className="px-5 pt-3 shrink-0">
           <div className="w-10 h-1.5 rounded-full bg-line mx-auto mb-3" />
           {title && <h3 className="font-display font-bold text-[20px] mb-4">{title}</h3>}

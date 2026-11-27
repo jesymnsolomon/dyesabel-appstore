@@ -9,7 +9,7 @@
   --color-ink-faint: #a9a4b4;
   --color-cream: #fff8ec;
   --color-paper: #fffdf8;
-  --color-line: #efe9df;
+  --color-line: #ecebf0;
   --color-orange: #ff8a3d;
   --color-pink: #ff6fb5;
   --color-purple: #9b7bff;
@@ -43,9 +43,9 @@
 }
 
 @layer base {
-  html { -webkit-tap-highlight-color: transparent; background: var(--color-cream); }
+  html { -webkit-tap-highlight-color: transparent; background: #ffffff; }
   body {
-    @apply bg-cream text-ink font-sans antialiased;
+    @apply bg-white text-ink font-sans antialiased;
     overscroll-behavior-y: none;
   }
   input, textarea, button, select { font: inherit; color: inherit; }
@@ -54,7 +54,7 @@
 }
 
 @layer components {
-  .card { @apply bg-white rounded-[28px] shadow-card; }
+  .card { @apply bg-white rounded-[28px] shadow-card ring-1 ring-ink/[0.05]; } /* faint edge so cards still stand out on the white page */
   .tap { @apply transition-transform duration-150 active:scale-[0.96] select-none; }
   .field {
     @apply w-full h-14 rounded-2xl bg-white border-2 border-line px-4 text-[16px] font-semibold placeholder:text-ink-faint placeholder:font-medium transition-colors focus:border-ink;
@@ -66,7 +66,7 @@
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   .skeleton {
-    background: linear-gradient(90deg, #f3eee6 25%, #fbf8f3 50%, #f3eee6 75%);
+    background: linear-gradient(90deg, #f1f0f4 25%, #f8f8fa 50%, #f1f0f4 75%);
     background-size: 200% 100%;
     @apply animate-shimmer rounded-2xl;
   }
