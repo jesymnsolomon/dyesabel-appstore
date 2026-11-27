@@ -36,7 +36,7 @@ export default function CreateGroup() {
           <input autoFocus className="field text-[19px] h-16" placeholder="e.g. Baguio Getaway" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
           <div className="flex gap-2 mt-3 overflow-x-auto no-scrollbar -mx-5 px-5">
             {IDEAS.map((i) => (
-              <button key={i} onClick={() => setName(i)} className="tap shrink-0 h-9 px-3.5 rounded-full bg-white border-2 border-line text-[13px] font-bold">{i}</button>
+              <button key={i} onClick={() => setName(i)} className="tap shrink-0 h-9 px-3.5 rounded-full bg-ink text-white text-[13px] font-bold">{i}</button>
             ))}
           </div>
         </div>

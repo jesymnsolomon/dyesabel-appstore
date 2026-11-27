@@ -35,16 +35,22 @@ export function CategoryPicker({ open, onClose, value, onPick }) {
 }
 
 /** Dropdown-style field showing the current category. */
-export function CategoryField({ value, onClick }) {
+export function CategoryField({ value, onClick, className = 'flex-1 min-w-0' }) {
   const c = catInfo(value)
   return (
-    <button type="button" onClick={onClick} className="tap flex-1 min-w-0 h-14 rounded-2xl bg-white border-2 border-line px-3 flex items-center gap-2 text-left">
-      <span className="w-8 h-8 rounded-xl grid place-items-center shrink-0" style={{ background: c.tint, color: c.color }}><Icon name={c.icon} size={17} /></span>
-      <span className="flex-1 min-w-0">
-        <span className="block text-[10px] font-bold uppercase tracking-wider text-ink-faint leading-none">Category</span>
-        <span className="block font-bold text-[14px] truncate mt-0.5">{c.name}</span>
-      </span>
-      <Icon name="chevronDown" size={16} className="text-ink-faint shrink-0" />
-    </button>
+    <div className={className}>
+      <span className="block text-[12px] font-bold text-ink-soft uppercase tracking-wider">Category</span>
+      <button
+        type="button"
+        onClick={onClick}
+        className="tap mt-1.5 w-full h-14 rounded-2xl px-4 flex items-center gap-2.5 text-left transition-colors"
+        style={{ background: c.tint }}
+        aria-label={`Category: ${c.name}. Tap to change`}
+      >
+        <Icon name={c.icon} size={22} style={{ color: c.color }} className="shrink-0" />
+        <span className="flex-1 min-w-0 font-display font-bold text-[16px] text-ink truncate">{c.name}</span>
+        <Icon name="chevronDown" size={18} stroke={2.6} style={{ color: c.color }} className="shrink-0" />
+      </button>
+    </div>
   )
 }

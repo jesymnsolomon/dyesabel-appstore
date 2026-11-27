@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Screen, Assistant, Avatar, Button, PhotoInput, GalleryInput, Segmented, Confetti, Mascot, Spinner, useObjectURL, useObjectURLs, useToast } from '../components/ui'
+import { Screen, Assistant, Avatar, Button, PhotoInput, GalleryInput, Segmented, Confetti, Mascot, Spinner, useObjectURL, useObjectURLs, useToast, avatarColor } from '../components/ui'
 import Icon from '../components/Icon'
 import { useAuth } from '../auth'
 import { api } from '../lib/api'
@@ -13,6 +13,7 @@ import { money, firstName, fullDateTime, toCents, fromCents } from '../lib/forma
 import { CurrencyPicker, CurrencyChip, useRates } from '../components/CurrencyPicker'
 import { CategoryPicker, CategoryField } from '../components/CategoryPicker'
 import ItemEditor from '../components/ItemEditor'
+import ItemAssign from '../components/ItemAssign'
 import ScanningScreen from '../components/ScanningScreen'
 import PhotoViewer from '../components/PhotoViewer'
 import { currencySymbol, rateBetween, round2, formatRate, niceNumber } from '../lib/currency'
@@ -184,7 +185,6 @@ export default function AddExpense({ groupId }) {
     }
   }
   const onPhoto = (file) => onAnalyze(file, false)
-  const onReceipt = (file) => onAnalyze(file, true)
 
   const applySuggestions = (sug, p) => {
     let list = sug
@@ -280,25 +280,19 @@ export default function AddExpense({ groupId }) {
             <p className="relative text-white/90 font-semibold text-[14px] mt-0.5">Food, items, tickets or receipts. I’ll read everything and fill it in.</p>
           </div>
         </PhotoInput>
-        <div className="grid grid-cols-2 gap-3">
-          <PhotoInput onPick={onReceipt} className="tap text-left">
-            <div className="card p-4 h-full">
-              <span className="w-12 h-12 rounded-2xl bg-lilac text-purple grid place-items-center"><Icon name="receipt" size={22} /></span>
-              <p className="font-display font-bold text-[16px] mt-3 leading-tight">Scan receipt</p>
-              <p className="text-[12px] font-semibold text-ink-soft mt-0.5">Every item, ready to split</p>
+        <GalleryInput multiple={false} onPick={onPhoto} className="tap w-full text-left">
+          <div className="card p-4 flex items-center gap-4">
+            <span className="w-14 h-14 rounded-2xl bg-mint text-green grid place-items-center shrink-0"><Icon name="upload" size={24} /></span>
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-bold text-[18px] leading-tight">Upload a photo</p>
+              <p className="text-[13px] font-semibold text-ink-soft mt-0.5">From your gallery. Photos or receipts.</p>
             </div>
-          </PhotoInput>
-          <GalleryInput multiple={false} onPick={onPhoto} className="tap text-left">
-            <div className="card p-4 h-full">
-              <span className="w-12 h-12 rounded-2xl bg-mint text-green grid place-items-center"><Icon name="image" size={22} /></span>
-              <p className="font-display font-bold text-[16px] mt-3 leading-tight">From gallery</p>
-              <p className="text-[12px] font-semibold text-ink-soft mt-0.5">Photos or receipts</p>
-            </div>
-          </GalleryInput>
-        </div>
+            <Icon name="chevron" size={20} className="text-ink-faint" />
+          </div>
+        </GalleryInput>
       </div>
     )
-    cta = <Button variant="soft" className="w-full" onClick={skipPhoto}><Icon name="edit" size={18} /> No photo, I’ll type it in</Button>
+    cta = <Button variant="dark" className="w-full" onClick={skipPhoto}><Icon name="edit" size={18} /> No photo, I’ll type it in</Button>
   }
 
   if (key === 'what') {
@@ -371,16 +365,16 @@ export default function AddExpense({ groupId }) {
               </div>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-3">
               <CategoryField value={category} onClick={() => setCatPicker(true)} />
-              <button type="button" onClick={() => setCurPicker(true)} className="tap w-[42%] shrink-0 h-14 rounded-2xl bg-white border-2 border-line px-3 flex items-center gap-2 text-left">
-                <span className="w-8 h-8 rounded-xl bg-cream grid place-items-center shrink-0 font-display font-extrabold text-[13px]">{expSym.length > 3 ? ec.slice(0, 1) : expSym}</span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-ink-faint leading-none">Currency</span>
-                  <span className="block font-bold text-[14px] truncate mt-0.5">{ec}</span>
-                </span>
-                <Icon name="chevronDown" size={16} className="text-ink-faint shrink-0" />
-              </button>
+              <div className="w-[42%] shrink-0">
+                <span className="block text-[12px] font-bold text-ink-soft uppercase tracking-wider">Currency</span>
+                <button type="button" onClick={() => setCurPicker(true)} className="tap mt-1.5 w-full h-14 rounded-2xl bg-white shadow-card px-4 flex items-center gap-2 text-left" aria-label={`Currency: ${ec}. Tap to change`}>
+                  <span className="font-display font-extrabold text-[16px] text-ink-soft shrink-0">{expSym.length > 3 ? ec.slice(0, 1) : expSym}</span>
+                  <span className="flex-1 min-w-0 font-display font-bold text-[16px] truncate">{ec}</span>
+                  <Icon name="chevronDown" size={18} stroke={2.6} className="text-ink-faint shrink-0" />
+                </button>
+              </div>
             </div>
             {foreign && conversionCard()}
 
@@ -460,7 +454,7 @@ export default function AddExpense({ groupId }) {
         )}
         <div className="flex gap-2 mt-6 flex-wrap justify-center">
           {[100, 250, 500, 1000, 2000].map((v) => (foreign && rate ? niceNumber(v / rate) : v)).filter((v, i, a) => v && a.indexOf(v) === i).map((q) => (
-            <button key={q} onClick={() => setAmount(String(q))} className="tap h-10 px-4 rounded-full bg-white border-2 border-line font-bold text-[14px]">{money(q, ec)}</button>
+            <button key={q} onClick={() => setAmount(String(q))} className={`tap h-10 px-4 rounded-full font-bold text-[14px] transition-colors ${Number(amount) === q ? 'bg-ink text-white' : 'bg-lilac text-purple'}`}>{money(q, ec)}</button>
           ))}
         </div>
       </div>
@@ -477,17 +471,24 @@ export default function AddExpense({ groupId }) {
         {members.map((m) => {
           const on = paidBy === m.id
           return (
-            <button key={m.id} onClick={() => setPaidBy(m.id)} className={`tap card p-3 pt-4 flex flex-col items-center gap-2 border-[3px] transition-colors ${on ? 'border-ink' : 'border-transparent'}`}>
-              <div className="relative">
-                <Avatar user={m} size={60} />
-                {on && <span className="absolute -right-1 -bottom-1 w-6 h-6 rounded-full bg-green text-white grid place-items-center ring-2 ring-white animate-pop"><Icon name="check" size={14} stroke={3} /></span>}
-              </div>
-              <span className="font-bold text-[13px] truncate max-w-full">{m.id === user.id ? 'Me' : firstName(m.name)}</span>
+            <button key={m.id} onClick={() => { setPaidBy(m.id); setTimeout(() => setStep((v) => (STEPS[v] === 'payer' ? v + 1 : v)), 220) }} aria-pressed={on} className={`tap relative aspect-[4/5] rounded-[24px] overflow-hidden shadow-card border-[3px] transition-colors ${on ? 'border-ink' : 'border-white'}`}>
+              {m.avatar_url ? (
+                <img src={m.avatar_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+              ) : m.is_placeholder ? (
+                <span className="absolute inset-0 bg-paper grid place-items-center font-display font-extrabold text-[40px] text-ink-faint border-2 border-dashed border-ink/20 rounded-[20px]">{m.name.trim()[0]?.toUpperCase()}</span>
+              ) : (
+                <span className="absolute inset-0 grid place-items-center font-display font-extrabold text-[44px] text-ink/80" style={{ background: avatarColor(m.name) }}>{m.name.trim()[0]?.toUpperCase()}</span>
+              )}
+              <span className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
+              <span className="absolute inset-x-1.5 bottom-2 text-white font-bold text-[13px] truncate text-center drop-shadow">{m.id === user.id ? 'Me' : firstName(m.name)}</span>
+              {m.is_placeholder && <span className="absolute left-1.5 top-1.5 bg-white/90 text-ink-soft text-[9px] font-bold px-1.5 py-0.5 rounded-full">not joined</span>}
+              {on && <span className="absolute right-1.5 top-1.5 w-7 h-7 rounded-full bg-green text-white grid place-items-center ring-2 ring-white animate-pop"><Icon name="check" size={15} stroke={3} /></span>}
             </button>
           )
         })}
       </div>
     )
+    cta = <p className="text-center text-[13px] font-semibold text-ink-faint py-4">Tap a person to continue</p>
   }
 
   if (key === 'split') {
@@ -522,50 +523,60 @@ export default function AddExpense({ groupId }) {
             {selectedItems.some((i) => i.shared) && <p className="text-[12px] text-ink-soft font-semibold mt-3"> Service charge & discounts are shared based on what each person had.</p>}
           </div>
         )}
-        {mode !== 'items' && <div className="card divide-y divide-line overflow-hidden">
-          {members.map((m) => {
-            const on = people.includes(m.id)
-            const share = splits.find((s) => s.user_id === m.id)?.amount || 0
-            return (
-              <div key={m.id} className="flex items-center gap-3 px-4 py-3">
-                <button onClick={() => setPeople(on ? people.filter((x) => x !== m.id) : [...people, m.id])} className="tap flex items-center gap-3 flex-1 min-w-0 text-left">
-                  <span className={`w-7 h-7 rounded-full grid place-items-center border-2 shrink-0 transition-colors ${on ? 'bg-green border-green text-white' : 'border-line'}`}>{on && <Icon name="check" size={15} stroke={3} />}</span>
-                  <Avatar user={m} size={38} />
-                  <span className={`font-bold text-[15px] truncate ${on ? '' : 'text-ink-faint'}`}>{m.id === user.id ? 'Me' : m.name}</span>
-                </button>
-                {on && mode === 'equal' && <span className="font-display font-bold text-[16px]">{money(share, ec, { decimals: true })}</span>}
-                {on && mode === 'fixed' && (fixed[m.id] ? (
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <div className="flex items-center gap-1">
+        {mode !== 'items' && (
+          <div className="grid grid-cols-2 gap-3">
+            {members.map((m) => {
+              const on = people.includes(m.id)
+              const share = splits.find((x) => x.user_id === m.id)?.amount || 0
+              const f = fixed[m.id]
+              const toggle = () => setPeople(on ? people.filter((x) => x !== m.id) : [...people, m.id])
+              return (
+                <div key={m.id} className={`card px-3 pt-4 pb-3 flex flex-col items-center text-center border-[3px] transition-all ${on ? 'border-green' : 'border-transparent'}`}>
+                  <button onClick={toggle} className="tap flex flex-col items-center gap-2 w-full" aria-pressed={on} aria-label={`${on ? 'Remove' : 'Add'} ${m.name}`}>
+                    <span className="relative p-1">
+                      <span className={`block rounded-full transition-all ${on ? '' : 'opacity-40 grayscale'}`}><Avatar user={m} size={64} /></span>
+                      <span className={`absolute right-0 bottom-0 w-7 h-7 rounded-full grid place-items-center ring-[3px] ring-white transition-colors ${on ? 'bg-green text-white' : 'bg-line text-ink-soft'}`}>
+                        <Icon name={on ? 'check' : 'plus'} size={15} stroke={3} />
+                      </span>
+                    </span>
+                    <span className={`font-bold text-[14px] truncate max-w-full ${on ? '' : 'text-ink-faint'}`}>{m.id === user.id ? 'Me' : firstName(m.name)}</span>
+                  </button>
+                  {m.is_placeholder && <span className="text-[10px] font-bold text-ink-faint -mt-1">not joined yet</span>}
+
+                  {!on && <span className="text-[12px] font-semibold text-ink-faint mt-1">Tap to add</span>}
+
+                  {on && mode === 'equal' && <span className="font-display font-bold text-[17px] mt-1">{money(share, ec, { decimals: true })}</span>}
+
+                  {on && mode === 'custom' && (
+                    <div className="mt-2 w-full flex items-center gap-1 bg-cream rounded-xl px-3 h-11">
+                      <span className="text-ink-faint font-bold">{expSym}</span>
+                      <input inputMode="decimal" placeholder="0" value={custom[m.id] ?? ''} onChange={(e) => setCustom({ ...custom, [m.id]: e.target.value.replace(/[^0-9.]/g, '') })} className="w-full min-w-0 bg-transparent font-bold text-right text-[15px]" />
+                    </div>
+                  )}
+
+                  {on && mode === 'fixed' && (f ? (
+                    <div className="mt-2 w-full flex flex-col gap-1.5">
                       <div className="flex bg-cream rounded-xl p-0.5">
                         {[['amount', expSym], ['percent', '%']].map(([t, l]) => (
-                          <button key={t} onClick={() => setFixed({ ...fixed, [m.id]: { ...fixed[m.id], type: t } })} className={`h-8 min-w-8 px-1.5 rounded-lg text-[13px] font-bold ${fixed[m.id].type === t ? 'bg-ink text-white' : 'text-ink-soft'}`}>{l}</button>
+                          <button key={t} onClick={() => setFixed({ ...fixed, [m.id]: { ...f, type: t } })} className={`flex-1 h-8 rounded-lg text-[13px] font-bold ${f.type === t ? 'bg-ink text-white' : 'text-ink-soft'}`}>{l}</button>
                         ))}
                       </div>
-                      <input autoFocus inputMode="decimal" placeholder="0" value={fixed[m.id].value} onChange={(e) => setFixed({ ...fixed, [m.id]: { ...fixed[m.id], value: e.target.value.replace(/[^0-9.]/g, '') } })} className="w-16 h-9 rounded-xl bg-cream px-2 font-bold text-right text-[14px]" />
-                      <button onClick={() => { const n = { ...fixed }; delete n[m.id]; setFixed(n) }} className="w-7 h-7 rounded-full grid place-items-center text-ink-faint" aria-label="Back to equal share"><Icon name="close" size={15} stroke={2.6} /></button>
+                      <input autoFocus inputMode="decimal" placeholder="0" value={f.value} onChange={(e) => setFixed({ ...fixed, [m.id]: { ...f, value: e.target.value.replace(/[^0-9.]/g, '') } })} className="w-full h-10 rounded-xl bg-cream px-3 font-bold text-center text-[15px]" />
+                      <span className="text-[12px] font-bold text-ink-soft">{f.type === 'percent' ? `= ${money(share, ec, { decimals: true })}` : 'fixed amount'}</span>
+                      <button onClick={() => { const n = { ...fixed }; delete n[m.id]; setFixed(n) }} className="text-[12px] font-bold text-pink">Use equal share</button>
                     </div>
-                    <span className="text-[11px] font-bold text-ink-soft pr-8">{fixed[m.id].type === 'percent' ? `= ${money(share, ec, { decimals: true })}` : 'fixed'}</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-right">
-                      <span className="block font-display font-bold text-[15px]">{money(share, ec, { decimals: true })}</span>
-                      <span className="block text-[10px] font-bold text-ink-faint">equal share</span>
-                    </span>
-                    <button onClick={() => setFixed({ ...fixed, [m.id]: { type: 'amount', value: '' } })} className="tap h-8 px-2.5 rounded-full border-2 border-line bg-white text-[12px] font-bold">Set</button>
-                  </div>
-                ))}
-                {on && mode === 'custom' && (
-                  <div className="flex items-center gap-1 bg-cream rounded-xl px-2 h-10 w-28">
-                    <span className="text-ink-faint font-bold">{expSym}</span>
-                    <input inputMode="decimal" placeholder="0" value={custom[m.id] ?? ''} onChange={(e) => setCustom({ ...custom, [m.id]: e.target.value.replace(/[^0-9.]/g, '') })} className="w-full bg-transparent font-bold text-right" />
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>}
+                  ) : (
+                    <div className="mt-1 w-full flex flex-col items-center gap-1.5">
+                      <span className="font-display font-bold text-[17px]">{money(share, ec, { decimals: true })}</span>
+                      <span className="text-[11px] font-bold text-ink-faint -mt-1">equal share</span>
+                      <button onClick={() => setFixed({ ...fixed, [m.id]: { type: 'amount', value: '' } })} className="tap h-8 px-3 rounded-full bg-ink text-white text-[12px] font-bold">Set amount or %</button>
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        )}
         {mode === 'fixed' && (() => {
           const { sum, rest, equalIds, each } = fixedInfo
           const bad = rest < 0 || (rest > 0 && equalIds.length === 0)
@@ -657,10 +668,10 @@ export default function AddExpense({ groupId }) {
     mascot = 'buddy'
     body = (
       <div className="card overflow-hidden">
-        <div className="relative h-28 grad-warm">
-          {photoUrl && <button type="button" onClick={() => setViewer(0)} className="absolute inset-0" aria-label="Preview photo"><img src={photoUrl} alt="" className="w-full h-full object-cover opacity-90" /></button>}
-        </div>
-        <div className="-mt-9 flex flex-col items-center px-4">
+        {photoUrl && (
+          <button type="button" onClick={() => setViewer(0)} className="block w-full h-28 bg-cream" aria-label="Preview photo"><img src={photoUrl} alt="" className="w-full h-full object-cover" /></button>
+        )}
+        <div className={`${photoUrl ? '-mt-9' : 'pt-5'} flex flex-col items-center px-4`}>
           <div className="w-[72px] h-[72px] rounded-full bg-white grid place-items-center text-[34px] ring-4 ring-white shadow-card" style={{ background: info.tint }}><Icon name={info.icon} size="1em" style={{ color: info.color }} /></div>
           <p className="font-display font-bold text-[22px] mt-2 text-center">{title}</p>
           <p className="font-display font-extrabold text-[40px] grad-text leading-tight">{money(total, cur, { decimals: true })}</p>
@@ -747,47 +758,6 @@ export default function AddExpense({ groupId }) {
   )
 }
 
-function ItemAssign({ items, members, me, cur, everyone, onChange }) {
-  return (
-    <div className="flex flex-col gap-2.5">
-      {items.map((it) => {
-        const ppl = Array.isArray(it.people) ? it.people : everyone
-        const all = ppl.length === everyone.length
-        return (
-          <div key={it.id} className={`card p-3.5 ${!it.shared && ppl.length === 0 ? 'ring-2 ring-orange' : ''}`}>
-            <div className="flex items-center gap-2">
-              {Number(it.qty) > 1 && <span className="text-[12px] font-bold text-ink-soft bg-cream rounded-md px-1.5 py-0.5">{it.qty}×</span>}
-              <span className="flex-1 font-bold text-[15px] truncate">{it.name || 'Item'}</span>
-              <span className={`font-display font-bold text-[15px] ${Number(it.price) < 0 ? 'text-green' : ''}`}>{money(Number(it.price), cur, { decimals: true })}</span>
-            </div>
-            {it.shared ? (
-              <p className="text-[12px] font-semibold text-ink-soft mt-1.5"> Shared fairly by everyone, based on what they had</p>
-            ) : (
-              <div className="flex items-center gap-2 mt-2.5 overflow-x-auto no-scrollbar">
-                <button onClick={() => onChange(it.id, all ? [] : everyone)} className={`tap shrink-0 h-9 px-3 rounded-full text-[12px] font-bold border-2 ${all ? 'bg-ink text-white border-ink' : 'bg-white border-line'}`}>
-                  {all ? 'Everyone' : 'All'}
-                </button>
-                {members.map((m) => {
-                  const on = ppl.includes(m.id)
-                  return (
-                    <button key={m.id} onClick={() => onChange(it.id, on ? ppl.filter((x) => x !== m.id) : [...ppl, m.id])} className="tap shrink-0 flex flex-col items-center gap-0.5 w-12" aria-label={m.name}>
-                      <span className={`relative rounded-full transition-all ${on ? 'ring-[3px] ring-green' : 'opacity-35 grayscale'}`}>
-                        <Avatar user={m} size={34} />
-                      </span>
-                      <span className={`text-[10px] font-bold truncate max-w-full ${on ? '' : 'text-ink-faint'}`}>{m.id === me ? 'Me' : firstName(m.name)}</span>
-                    </button>
-                  )
-                })}
-                {ppl.length > 1 && <span className="shrink-0 text-[11px] font-bold text-ink-faint pl-1">{money(Number(it.price) / ppl.length, cur, { decimals: true })} each</span>}
-              </div>
-            )}
-            {!it.shared && ppl.length === 0 && <p className="text-[12px] font-bold text-orange mt-1.5">Pick who had this</p>}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
 function Row({ label, children }) {
   return (

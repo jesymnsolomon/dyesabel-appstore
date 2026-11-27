@@ -138,3 +138,53 @@ export function groupStats(expenses, memberIds, meId) {
     debts: simplifyDebts(net),
   }
 }
+
+/** Scale everyone's share to a new total, keeping the same proportions (exact to the centavo). */
+export function rescaleSplits(splits, newTotal) {
+  const list = (splits || []).filter((s) => Number(s.amount) !== 0)
+  const target = toCents(newTotal)
+  const old = list.reduce((t, s) => t + toCents(s.amount), 0)
+  if (!list.length) return []
+  if (!old) return equalSplit(newTotal, list.map((s) => s.user_id))
+  let given = 0
+  return list.map((s, k) => {
+    const c = k === list.length - 1 ? target - given : Math.round((toCents(s.amount) * target) / old)
+    given += c
+    return { user_id: s.user_id, amount: fromCents(c) }
+  })
+}
+
+/**
+ * New shares after a transaction is edited, keeping how it was split:
+ * - "items" (receipt split by item): re-run the per-item split
+ * - "equal": split equally between the same people
+ * - anything else (custom, fixed + rest, settle-ups): same proportions as before
+ * `rate` converts item prices (receipt currency) into the group currency.
+ */
+export function recomputeSplits(expense, { amount, items }, memberIds, rate = 1) {
+  if (expense.split_mode === 'items' && items?.some((i) => i.people?.length || i.shared)) {
+    const inOriginal = itemSplits(items.map((i) => ({ ...i, price: Number(i.price) })), memberIds)
+    return rate === 1 ? inOriginal : rescaleSplits(inOriginal, amount)
+  }
+  if (expense.split_mode === 'equal') return equalSplit(amount, (expense.splits || []).map((s) => s.user_id))
+  return rescaleSplits(expense.splits, amount)
+}
+
+/**
+ * Why `from` owes `to`: every bill (and settle-up) between just these two people.
+ * Each line is in cents: positive = adds to what `from` owes `to`, negative = takes it away.
+ * `direct` is the total of those lines. The "who owes who" amount can differ from it,
+ * because debts are combined across the whole group so fewer payments are needed.
+ */
+export function pairBreakdown(expenses, from, to) {
+  const lines = []
+  for (const e of expenses) {
+    const share = (id) => toCents((e.splits || []).find((s) => s.user_id === id)?.amount || 0)
+    let c = 0
+    if (e.paid_by === to) c += share(from)
+    if (e.paid_by === from) c -= share(to)
+    if (c !== 0) lines.push({ expense: e, cents: c })
+  }
+  lines.sort((a, b) => b.expense.created_at.localeCompare(a.expense.created_at))
+  return { lines, direct: lines.reduce((t, l) => t + l.cents, 0) }
+}

@@ -38,11 +38,25 @@ export function Assistant({ mascot = 'buddy', children, sub, size = 72 }) {
 }
 
 const AV_COLORS = ['#FFD23F', '#FF8A3D', '#FF6FB5', '#9B7BFF', '#3DA9F5', '#2BBF6A']
+const PH_COLORS = [
+  ['#FFF4C2', '#B88A00'], ['#FFE3D1', '#D9661A'], ['#FFDDEE', '#D6458F'], ['#E9E1FF', '#7556E0'],
+  ['#DDF0FD', '#1F86CF'], ['#DAF5E6', '#1E9955'], ['#FFE0E0', '#D24B4B'], ['#E0F5F3', '#1B8F84'],
+]
+export const avatarColor = (name = '?') => AV_COLORS[[...name].reduce((s, c) => s + c.charCodeAt(0), 0) % AV_COLORS.length]
 export function Avatar({ user, size = 40, ring = false, className = '' }) {
   const name = user?.name || '?'
   const color = AV_COLORS[[...name].reduce((s, c) => s + c.charCodeAt(0), 0) % AV_COLORS.length]
   const style = { width: size, height: size, fontSize: size * 0.4 }
   const ringCls = ring ? 'ring-[3px] ring-white' : ''
+  if (user?.is_placeholder) {
+    // soft colour picked from their id (stays the same everywhere), dashed edge = not joined yet
+    const [bg, fg] = PH_COLORS[[...(user.id || name)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % PH_COLORS.length]
+    return (
+      <div style={{ ...style, background: bg, color: fg, borderColor: fg }} className={`rounded-full grid place-items-center font-display font-extrabold shrink-0 border-2 border-dashed ${ringCls} ${className}`} title={`${name} (not joined yet)`}>
+        {name.trim()[0]?.toUpperCase()}
+      </div>
+    )
+  }
   if (user?.avatar_url) return <img src={user.avatar_url} alt={name} style={style} className={`rounded-full object-cover bg-lilac shrink-0 ${ringCls} ${className}`} />
   return (
     <div style={{ ...style, background: color }} className={`rounded-full grid place-items-center font-display font-extrabold text-ink shrink-0 ${ringCls} ${className}`}>
@@ -69,7 +83,8 @@ export function Button({ variant = 'dark', size = 'lg', className = '', loading,
   const v = {
     dark: 'bg-ink text-white shadow-ink',
     grad: 'grad-btn text-white shadow-pop',
-    soft: 'bg-white text-ink border-2 border-line',
+    soft: 'bg-ink text-white',
+    muted: 'bg-[#ece8f0] text-ink',
     ghost: 'bg-transparent text-ink-soft',
     danger: 'bg-[#fdecec] text-red',
   }[variant]
@@ -226,12 +241,12 @@ export function Sheet({ open, onClose, children, title, header, tall = false }) 
 
 export function Segmented({ value, onChange, options }) {
   return (
-    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}>
+    <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}>
       {options.map((o) => {
         const on = value === o.value
         return (
-          <button key={o.value} type="button" onClick={() => onChange(o.value)} className={`tap h-[72px] rounded-2xl border-2 flex flex-col items-center justify-center gap-1 font-bold text-[14px] transition-colors ${on ? 'bg-ink text-white border-ink' : 'bg-white border-line text-ink'}`}>
-            {o.icon && <Icon name={o.icon} size={22} />}
+          <button key={o.value} type="button" onClick={() => onChange(o.value)} className={`tap h-14 rounded-2xl border-2 flex items-center justify-center gap-2 px-3 font-bold text-[15px] whitespace-nowrap transition-colors ${on ? 'bg-ink text-white border-ink' : 'bg-white border-line text-ink'}`}>
+            {o.icon && <Icon name={o.icon} size={20} className="shrink-0" />}
             {o.label}
           </button>
         )

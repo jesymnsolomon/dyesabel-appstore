@@ -11,10 +11,11 @@ const dayKey = (d) => {
  * Everything the superadmin dashboard shows, computed from raw rows.
  * Money is converted into `view` currency with today's rates (when available).
  */
-export function adminStats({ users, groups, members, expenses }, view, rates) {
+export function adminStats({ users, placeholders = [], groups, members, expenses }, view, rates) {
   const now = Date.now()
   const groupById = Object.fromEntries(groups.map((g) => [g.id, g]))
-  const userById = Object.fromEntries(users.map((u) => [u.id, u]))
+  // placeholders (added by a host, not joined yet) get names too, but aren't counted as users
+  const userById = Object.fromEntries([...placeholders, ...users].map((u) => [u.id, u]))
   const conv = (amount, groupId) => {
     const cur = groupById[groupId]?.currency || view
     if (cur === view) return Number(amount)

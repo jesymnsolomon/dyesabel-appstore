@@ -4,9 +4,9 @@ import Icon from '../components/Icon'
 import { useAuth } from '../auth'
 import { api } from '../lib/api'
 import { navigate, back } from '../lib/router'
-import { groupStats } from '../lib/balances'
+import { groupStats, pairBreakdown } from '../lib/balances'
 import { catInfo } from '../lib/categories'
-import { money, firstName, relDay } from '../lib/format'
+import { money, firstName, relDay, toCents, fromCents } from '../lib/format'
 import { shareInvite } from './Invite'
 import { useNotifications } from '../notifications'
 import { CurrencyPicker, CurrencyChip, useRates, useViewCurrency } from '../components/CurrencyPicker'
@@ -121,14 +121,14 @@ export default function Group({ groupId }) {
       {/* Tabs */}
       <section className="px-5 mt-5">
         <div className="flex bg-white rounded-full p-1 shadow-card">
-          {[['overview', 'Overview'], ['balances', 'Who owes'], ['activity', 'Activity']].map(([v, l]) => (
+          {[['overview', 'Overview'], ['balances', 'Who owes'], ['activity', 'Transactions']].map(([v, l]) => (
             <button key={v} onClick={() => setTab(v)} className={`flex-1 h-10 rounded-full font-bold text-[14px] transition-colors ${tab === v ? 'bg-ink text-white' : 'text-ink-soft'}`}>{l}</button>
           ))}
         </div>
       </section>
 
       {tab === 'overview' && <Overview stats={stats} fm={fm} nameOf={nameOf} byId={byId} />}
-      {tab === 'balances' && <Balances stats={stats} group={group} fm={fm} nameOf={nameOf} byId={byId} meId={user.id} onSettle={setSettle} />}
+      {tab === 'balances' && <Balances stats={stats} expenses={expenses} group={group} fm={fm} nameOf={nameOf} byId={byId} meId={user.id} onSettle={setSettle} />}
       {tab === 'activity' && <Activity expenses={expenses} fm={fm} nameOf={nameOf} />}
 
       {/* Floating add button */}
@@ -142,7 +142,7 @@ export default function Group({ groupId }) {
       </div>
 
       <CurrencyPicker open={curPicker} onClose={() => setCurPicker(false)} value={showCur} onPick={setViewCur} title="Show amounts in…" note={`Display only. The group still keeps its balances in ${cur}.`} />
-      <GroupMenu open={menu} onClose={() => setMenu(false)} group={group} stats={stats} meId={user.id} cur={cur} byId={byId} onInvite={() => { setMenu(false); shareInvite(group, toast) }} />
+      <GroupMenu open={menu} onClose={() => setMenu(false)} group={group} stats={stats} meId={user.id} cur={cur} byId={byId} onInvite={() => { setMenu(false); shareInvite(group, toast) }} onChanged={load} />
       <SettleSheet debt={settle} group={group} cur={cur} nameOf={nameOf} byId={byId} onClose={() => setSettle(null)} onDone={() => { setSettle(null); load() }} />
     </Screen>
   )
@@ -281,9 +281,11 @@ function SpendChart({ days, fm }) {
 }
 
 // ---------------- Balances ----------------
-function Balances({ stats, group, fm, nameOf, byId, meId, onSettle }) {
+function Balances({ stats, expenses, group, fm, nameOf, byId, meId, onSettle }) {
+  const [open, setOpen] = useState(null) // the debt whose breakdown is showing
   return (
     <>
+      <DebtBreakdown debt={open} expenses={expenses} fm={fm} nameOf={nameOf} byId={byId} meId={meId} onClose={() => setOpen(null)} onSettle={(d) => { setOpen(null); onSettle(d) }} />
       <section className="px-5 mt-5">
         <h2 className="font-display font-bold text-[19px] mb-3">Who owes who</h2>
         {stats.debts.length === 0 ? (
@@ -293,7 +295,7 @@ function Balances({ stats, group, fm, nameOf, byId, meId, onSettle }) {
             {stats.debts.map((d, i) => {
               const mine = d.from === meId || d.to === meId
               return (
-                <div key={i} className={`card p-4 animate-rise ${mine ? 'ring-2 ring-pink/40' : ''}`} style={{ animationDelay: `${i * 0.04}s` }}>
+                <div key={i} role="button" tabIndex={0} onClick={() => setOpen(d)} onKeyDown={(ev) => ev.key === 'Enter' && setOpen(d)} className={`tap card p-4 animate-rise cursor-pointer ${mine ? 'ring-2 ring-pink/40' : ''}`} style={{ animationDelay: `${i * 0.04}s` }}>
                   <div className="flex items-center gap-3">
                     <Avatar user={byId(d.from)} size={44} />
                     <div className="flex-1 flex flex-col items-center">
@@ -306,8 +308,11 @@ function Balances({ stats, group, fm, nameOf, byId, meId, onSettle }) {
                     <Avatar user={byId(d.to)} size={44} />
                   </div>
                   <div className="flex items-center justify-between mt-3">
-                    <p className="text-[14px] font-semibold"><b>{nameOf(d.from)}</b> {d.from === meId ? 'owe' : 'owes'} <b>{nameOf(d.to)}</b></p>
-                    <button onClick={() => onSettle(d)} className="tap h-9 px-4 rounded-full bg-ink text-white text-[13px] font-bold flex items-center gap-1.5"><Icon name="handshake" size={16} /> Settle</button>
+                    <div>
+                      <p className="text-[14px] font-semibold"><b>{nameOf(d.from)}</b> {d.from === meId ? 'owe' : 'owes'} <b>{nameOf(d.to)}</b></p>
+                      <p className="text-[12px] font-bold text-ink-faint flex items-center gap-0.5 mt-0.5">See breakdown <Icon name="chevron" size={13} /></p>
+                    </div>
+                    <button onClick={(ev) => { ev.stopPropagation(); onSettle(d) }} className="tap h-9 px-4 rounded-full bg-ink text-white text-[13px] font-bold flex items-center gap-1.5"><Icon name="handshake" size={16} /> Settle</button>
                   </div>
                 </div>
               )
@@ -335,6 +340,72 @@ function Balances({ stats, group, fm, nameOf, byId, meId, onSettle }) {
         <p className="text-[12px] text-ink-faint font-semibold mt-2 px-1">Green = gets money back · Red = needs to pay</p>
       </section>
     </>
+  )
+}
+
+function DebtBreakdown({ debt, expenses, fm, nameOf, byId, meId, onClose, onSettle }) {
+  if (!debt) return null
+  const { lines, direct } = pairBreakdown(expenses || [], debt.from, debt.to)
+  const other = toCents(debt.amount) - direct // moved through other members when debts were combined
+  const fromName = nameOf(debt.from)
+  const toName = nameOf(debt.to)
+  const signed = (c) => `${c > 0 ? '+' : '−'} ${fm(fromCents(Math.abs(c)), { decimals: true })}`
+  return (
+    <Sheet open onClose={onClose} tall>
+      <div className="flex flex-col gap-4 pb-2">
+        <div className="flex flex-col items-center text-center">
+          <div className="flex items-center gap-3">
+            <Avatar user={byId(debt.from)} size={52} />
+            <Icon name="arrow" size={20} className="text-ink-faint" />
+            <Avatar user={byId(debt.to)} size={52} />
+          </div>
+          <p className="font-display font-extrabold text-[30px] mt-2 leading-tight">{fm(debt.amount, { decimals: true })}</p>
+          <p className="text-[14px] font-semibold text-ink-soft"><b className="text-ink">{fromName}</b> {debt.from === meId ? 'owe' : 'owes'} <b className="text-ink">{toName}</b></p>
+        </div>
+
+        <div className="card overflow-hidden">
+          <p className="px-4 pt-4 pb-2 font-display font-bold text-[16px]">Where it comes from</p>
+          {lines.length === 0 && <p className="px-4 pb-4 text-[13px] font-semibold text-ink-soft">No bills directly between {fromName} and {toName}.</p>}
+          {lines.map(({ expense: e, cents }) => {
+            const settle = e.kind === 'settlement'
+            const why = settle
+              ? `${nameOf(e.paid_by)} paid ${nameOf(e.paid_by === debt.from ? debt.to : debt.from)} back`
+              : e.paid_by === debt.to
+                ? `${toName} paid · ${fromName}${debt.from === meId ? 'r' : '’s'} share`
+                : `${fromName} paid · ${toName}${debt.to === meId ? 'r' : '’s'} share`
+            return (
+              <button key={e.id} onClick={() => navigate(`/expense/${e.id}`)} className="tap w-full flex items-center gap-3 px-4 py-3 border-t border-line text-left">
+                <span className="flex-1 min-w-0">
+                  <span className="block font-bold text-[14px] truncate">{e.title}</span>
+                  <span className="block text-[12px] font-semibold text-ink-faint truncate">{why} · {relDay(e.created_at)}</span>
+                </span>
+                <span className={`font-display font-bold text-[15px] whitespace-nowrap ${cents > 0 ? '' : 'text-green'}`}>{signed(cents)}</span>
+                <Icon name="chevron" size={15} className="text-ink-faint shrink-0" />
+              </button>
+            )
+          })}
+          {other !== 0 && (
+            <div className="flex items-start gap-3 px-4 py-3 border-t border-line bg-lilac/50">
+              <span className="flex-1 min-w-0">
+                <span className="block font-bold text-[14px]">Combined with other members</span>
+                <span className="block text-[12px] font-semibold text-ink-soft">Balances with others in the group were merged so everyone makes fewer payments.</span>
+              </span>
+              <span className={`font-display font-bold text-[15px] whitespace-nowrap ${other > 0 ? '' : 'text-green'}`}>{signed(other)}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between px-4 py-3 border-t-2 border-dashed border-line bg-cream/60">
+            <span className="font-bold text-[14px]">{fromName} {debt.from === meId ? 'owe' : 'owes'}</span>
+            <span className="font-display font-extrabold text-[17px]">{fm(debt.amount, { decimals: true })}</span>
+          </div>
+        </div>
+        <p className="text-[12px] font-semibold text-ink-faint px-1 -mt-2">+ adds to what {fromName} {debt.from === meId ? 'owe' : 'owes'} · − takes it away. Tap a bill to open it.</p>
+
+        <div className="flex gap-2">
+          <Button variant="muted" className="flex-1" onClick={onClose}>Close</Button>
+          <Button variant="dark" className="flex-[1.4]" onClick={() => onSettle(debt)}><Icon name="handshake" size={18} /> Settle up</Button>
+        </div>
+      </div>
+    </Sheet>
   )
 }
 
@@ -379,16 +450,63 @@ function SettleSheet({ debt, group, cur, nameOf, byId, onClose, onDone }) {
 }
 
 // ---------------- Group options: invite, leave, delete ----------------
-function GroupMenu({ open, onClose, group, stats, meId, cur, byId, onInvite }) {
+function GroupMenu({ open, onClose, group, stats, meId, cur, byId, onInvite, onChanged }) {
   const [confirm, setConfirm] = useState(null) // 'delete' | 'leave'
+  const [newName, setNewName] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [merging, setMerging] = useState(null) // placeholder being merged into a real member
+  const [mergeTo, setMergeTo] = useState(null)
   const toast = useToast()
   const { refresh: refreshNotes } = useNotifications()
   const owner = group.created_by === meId
+  const joined = group.members.filter((m) => !m.is_placeholder)
   const net = stats.net[meId] || 0
   const bills = stats.count + (stats.settlementsCount || 0)
 
-  const close = () => { setConfirm(null); onClose() }
+  const close = () => { setConfirm(null); setShowAdd(false); setNewName(''); setMerging(null); setMergeTo(null); onClose() }
+  const mergePerson = async () => {
+    const to = joined.find((m) => m.id === mergeTo)
+    if (!merging || !to) return
+    setBusy(true)
+    try {
+      await api.mergePlaceholder(group.id, merging.id, to.id)
+      toast(`${merging.name}’s bills now belong to ${to.id === meId ? 'you' : to.name}`)
+      setMerging(null)
+      setMergeTo(null)
+      onChanged()
+    } catch (e) {
+      toast(e.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const addPerson = async (ev) => {
+    ev?.preventDefault()
+    if (!newName.trim()) return
+    setAdding(true)
+    try {
+      await api.addPlaceholder(group.id, newName.trim())
+      toast(`Added ${newName.trim()}. They can claim it when they join.`)
+      setNewName('')
+      setShowAdd(false)
+      onChanged()
+    } catch (e) {
+      toast(e.message, 'error')
+    } finally {
+      setAdding(false)
+    }
+  }
+  const removePerson = async (m) => {
+    try {
+      await api.removePlaceholder(group.id, m.id)
+      toast(`Removed ${m.name}`)
+      onChanged()
+    } catch (e) {
+      toast(e.message, 'error')
+    }
+  }
   const run = async () => {
     setBusy(true)
     try {
@@ -422,6 +540,56 @@ function GroupMenu({ open, onClose, group, stats, meId, cur, byId, onInvite }) {
               <p className="text-[13px] font-semibold text-ink-soft">Created by {owner ? 'you' : byId(group.created_by).name} · {group.members.length} members</p>
             </div>
           </div>
+          <p className="text-[12px] font-bold text-ink-faint uppercase tracking-wider mb-2 px-1">Members</p>
+          <div className="card divide-y divide-line overflow-hidden mb-4">
+            {group.members.map((m) => (
+              <div key={m.id}>
+                <div className="flex items-center gap-3 px-4 py-2.5">
+                  <Avatar user={m} size={40} />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-[14px] truncate">{m.id === meId ? `${m.name} (you)` : m.name}</p>
+                    <p className="text-[12px] font-semibold text-ink-faint">{m.id === group.created_by ? 'Host' : m.is_placeholder ? 'Not joined yet. Can claim with the invite link' : 'Member'}</p>
+                  </div>
+                  {owner && m.is_placeholder && (
+                    <>
+                      <button onClick={() => { setMerging(merging?.id === m.id ? null : m); setMergeTo(null) }} className={`tap w-9 h-9 rounded-full grid place-items-center ${merging?.id === m.id ? 'bg-ink text-white' : 'bg-cream text-ink-soft'}`} aria-label={`${m.name} already joined`}><Icon name="userCheck" size={16} /></button>
+                      <button onClick={() => removePerson(m)} className="tap w-9 h-9 rounded-full bg-cream grid place-items-center text-ink-soft" aria-label={`Remove ${m.name}`}><Icon name="close" size={16} /></button>
+                    </>
+                  )}
+                </div>
+                {merging?.id === m.id && (
+                  <div className="px-4 pb-3 animate-rise">
+                    <p className="text-[13px] font-bold">Already joined as someone else?</p>
+                    <p className="text-[12px] font-semibold text-ink-soft mt-0.5">Pick who {m.name} is. Their bills and shares move to that person.</p>
+                    <div className="flex flex-wrap gap-2 mt-2.5">
+                      {joined.map((j) => (
+                        <button key={j.id} onClick={() => setMergeTo(j.id)} aria-pressed={mergeTo === j.id} className={`tap flex items-center gap-1.5 rounded-full pl-1 pr-3 py-1 text-[13px] font-bold border-2 ${mergeTo === j.id ? 'border-ink bg-white' : 'border-transparent bg-cream'}`}>
+                          <Avatar user={j} size={26} />{j.id === meId ? 'You' : j.name}
+                        </button>
+                      ))}
+                    </div>
+                    <Button size="sm" className="mt-3 w-full" disabled={!mergeTo} loading={busy} onClick={mergePerson}>
+                      {mergeTo ? `Merge into ${mergeTo === meId ? 'you' : joined.find((j) => j.id === mergeTo)?.name}` : 'Pick a person'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+            {owner && (showAdd ? (
+              <form onSubmit={addPerson} className="flex items-center gap-2 px-3 py-2.5">
+                <input autoFocus value={newName} onChange={(ev) => setNewName(ev.target.value)} placeholder="Their name, e.g. Mark" maxLength={40} className="flex-1 min-w-0 h-11 rounded-xl bg-cream px-3 font-bold text-[14px]" />
+                <Button type="submit" size="sm" loading={adding} disabled={!newName.trim()}>Add</Button>
+              </form>
+            ) : (
+              <button onClick={() => setShowAdd(true)} className="tap w-full flex items-center gap-3 px-4 py-3 text-left">
+                <span className="w-10 h-10 rounded-full border-2 border-dashed border-ink/30 grid place-items-center text-ink-soft"><Icon name="plus" size={18} /></span>
+                <span className="flex-1">
+                  <span className="block font-bold text-[14px]">Add someone not on Splitsy yet</span>
+                  <span className="block text-[12px] font-semibold text-ink-faint">Split bills with them now; they claim it when they join</span>
+                </span>
+              </button>
+            ))}
+          </div>
           <div className="card divide-y divide-line overflow-hidden">
             <MenuRow icon="share" label="Share invite link" onClick={onInvite} />
             {!owner && <MenuRow icon="logout" label="Leave group" onClick={() => setConfirm('leave')} />}
@@ -437,7 +605,7 @@ function GroupMenu({ open, onClose, group, stats, meId, cur, byId, onInvite }) {
           <h3 className="font-display font-bold text-[22px] mt-3">{confirm === 'delete' ? <>Delete “{group.name}”?</> : <>Leave “{group.name}”?</>}</h3>
           <p className="text-ink-soft font-medium mt-1.5 text-[14px]">
             {confirm === 'delete'
-              ? <>This removes the group for <b className="text-ink">all {group.members.length} members</b>, including {bills} {bills === 1 ? 'bill' : 'bills'} and every balance. This can’t be undone.</>
+              ? <>This removes the group for <b className="text-ink">all {joined.length} {joined.length === 1 ? 'member' : 'members'}</b>, including {bills} {bills === 1 ? 'bill' : 'bills'} and every balance. This can’t be undone.</>
               : 'You won’t see this group anymore. Your past bills stay in the group for the others.'}
           </p>
           {Math.abs(net) >= 0.01 && (
@@ -447,7 +615,7 @@ function GroupMenu({ open, onClose, group, stats, meId, cur, byId, onInvite }) {
             </div>
           )}
           <div className="flex gap-2 mt-5">
-            <Button variant="soft" className="flex-1" onClick={() => setConfirm(null)}>Cancel</Button>
+            <Button variant="muted" className="flex-1" onClick={() => setConfirm(null)}>Cancel</Button>
             <Button variant="danger" className="flex-1 !bg-red !text-white" loading={busy} onClick={run}>{confirm === 'delete' ? 'Delete group' : 'Leave group'}</Button>
           </div>
         </div>
@@ -469,7 +637,7 @@ function MenuRow({ icon, label, onClick, danger }) {
 // ---------------- Activity ----------------
 function Activity({ expenses, fm, nameOf }) {
   if (!expenses.length) {
-    return <section className="px-5 mt-5"><div className="card"><Empty mascot="bear" title="No activity yet">Your transactions will show up here.</Empty></div></section>
+    return <section className="px-5 mt-5"><div className="card"><Empty mascot="bear" title="No transactions yet">Every bill and settle-up will show up here.</Empty></div></section>
   }
   const groups = []
   for (const e of expenses) {

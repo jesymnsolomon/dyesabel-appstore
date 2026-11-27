@@ -96,6 +96,8 @@ create trigger splitsy_group_created
   after insert on public.splitsy_groups for each row execute function public.splitsy_add_creator();
 
 -- Invite preview (works even before signing in, so the join page can say "You're invited to …")
+-- (dropped first so re-running this file never trips over an older version)
+drop function if exists public.splitsy_invite_preview(text);
 create or replace function public.splitsy_invite_preview(code text)
 returns table (id uuid, name text, mascot text, member_count bigint, is_member boolean)
 language sql security definer stable set search_path = public as $$
@@ -108,6 +110,7 @@ $$;
 grant execute on function public.splitsy_invite_preview(text) to anon, authenticated;
 
 -- Join a group with its invite code
+drop function if exists public.splitsy_join(text, uuid);
 create or replace function public.splitsy_join(code text)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare gid uuid;
@@ -324,3 +327,244 @@ create policy "push subs own" on public.splitsy_push_subscriptions for all to au
 -- ============================================================
 drop policy if exists "groups delete own" on public.splitsy_groups;
 create policy "groups delete own" on public.splitsy_groups for delete to authenticated using (created_by = auth.uid());
+
+-- ============================================================
+-- Placeholder members ("mock users")
+-- The host can add people who aren't on Splitsy yet. When that person
+-- joins with the invite link they can pick their placeholder, and all of
+-- its bills, shares and receipt items move to their real account.
+-- ============================================================
+alter table public.splitsy_profiles add column if not exists is_placeholder boolean not null default false;
+alter table public.splitsy_profiles add column if not exists created_by uuid;
+-- placeholders aren't real sign-ins, so profiles no longer have to match an auth user
+alter table public.splitsy_profiles drop constraint if exists splitsy_profiles_id_fkey;
+
+create or replace function public.splitsy_add_placeholder(gid uuid, pname text)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare pid uuid := gen_random_uuid();
+begin
+  if not exists (select 1 from splitsy_groups where id = gid and created_by = auth.uid()) then
+    raise exception 'Only the group host can add people';
+  end if;
+  if coalesce(trim(pname), '') = '' then raise exception 'Please enter a name'; end if;
+  insert into splitsy_profiles (id, name, is_placeholder, created_by) values (pid, left(trim(pname), 40), true, auth.uid());
+  insert into splitsy_members (group_id, user_id) values (gid, pid);
+  return pid;
+end $$;
+grant execute on function public.splitsy_add_placeholder(uuid, text) to authenticated;
+
+create or replace function public.splitsy_remove_placeholder(gid uuid, pid uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from splitsy_groups where id = gid and created_by = auth.uid()) then
+    raise exception 'Only the group host can remove people';
+  end if;
+  if not exists (
+    select 1 from splitsy_profiles p join splitsy_members m on m.user_id = p.id
+    where p.id = pid and p.is_placeholder and m.group_id = gid
+  ) then raise exception 'That person already joined'; end if;
+  if exists (
+    select 1 from splitsy_expenses where group_id = gid
+      and (paid_by = pid or splits::text like '%' || pid::text || '%' or items::text like '%' || pid::text || '%')
+  ) then
+    raise exception 'They’re part of some bills. Remove them from those bills first.';
+  end if;
+  delete from splitsy_profiles where id = pid;
+end $$;
+grant execute on function public.splitsy_remove_placeholder(uuid, uuid) to authenticated;
+
+-- Invite preview now also lists the placeholders someone can join as
+drop function if exists public.splitsy_invite_preview(text);
+create or replace function public.splitsy_invite_preview(code text)
+returns table (id uuid, name text, mascot text, member_count bigint, is_member boolean, placeholders jsonb)
+language sql security definer stable set search_path = public as $$
+  select g.id, g.name, g.mascot,
+         (select count(*) from splitsy_members m where m.group_id = g.id),
+         exists (select 1 from splitsy_members m where m.group_id = g.id and m.user_id = auth.uid()),
+         coalesce((
+           select jsonb_agg(jsonb_build_object('id', p.id, 'name', p.name) order by p.name)
+           from splitsy_members m join splitsy_profiles p on p.id = m.user_id
+           where m.group_id = g.id and p.is_placeholder
+         ), '[]'::jsonb)
+  from splitsy_groups g
+  where g.invite_code = upper(code);
+$$;
+grant execute on function public.splitsy_invite_preview(text) to anon, authenticated;
+
+-- Moves every bill, share and receipt item from a placeholder (src) to a real
+-- member (dst) in one group, then removes the placeholder. If dst already had a
+-- share in the same bill, the two shares are added together (never duplicated).
+-- Internal helper: only called by the functions below, not by the app directly.
+create or replace function public.splitsy_merge_profile(gid uuid, src uuid, dst uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare s text := src::text; d text := dst::text;
+begin
+  update splitsy_expenses set paid_by = dst where group_id = gid and paid_by = src;
+
+  update splitsy_expenses e set splits = (
+    select coalesce(jsonb_agg(jsonb_build_object('user_id', q.uid, 'amount', q.amt) order by q.ord), '[]'::jsonb)
+    from (
+      select case when x.v->>'user_id' = s then d else x.v->>'user_id' end as uid,
+             sum((x.v->>'amount')::numeric) as amt, min(x.o) as ord
+      from jsonb_array_elements(e.splits) with ordinality as x(v, o)
+      group by 1
+    ) q
+  )
+  where e.group_id = gid and jsonb_typeof(e.splits) = 'array'
+    and e.splits @> jsonb_build_array(jsonb_build_object('user_id', s));
+
+  update splitsy_expenses e set items = (
+    select coalesce(jsonb_agg(
+      case when jsonb_typeof(y.it->'people') = 'array' and (y.it->'people') ? s then
+        jsonb_set(y.it, '{people}', (
+          select coalesce(jsonb_agg(z.pid order by z.ord), '[]'::jsonb)
+          from (
+            select case when p.v = s then d else p.v end as pid, min(p.o) as ord
+            from jsonb_array_elements_text(y.it->'people') with ordinality as p(v, o)
+            group by 1
+          ) z
+        ))
+      else y.it end
+      order by y.io), '[]'::jsonb)
+    from jsonb_array_elements(e.items) with ordinality as y(it, io)
+  )
+  where e.group_id = gid and jsonb_typeof(e.items) = 'array' and e.items::text like '%' || s || '%';
+
+  delete from splitsy_profiles where id = src; -- removes the placeholder's membership too
+end $$;
+revoke all on function public.splitsy_merge_profile(uuid, uuid, uuid) from public, anon, authenticated;
+
+-- Join, optionally taking over a placeholder's records
+drop function if exists public.splitsy_join(text);
+create or replace function public.splitsy_join(code text, claim uuid default null)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  gid uuid;
+  me uuid := auth.uid();
+begin
+  if me is null then raise exception 'Please sign in first'; end if;
+  select id into gid from splitsy_groups where invite_code = upper(code);
+  if gid is null then raise exception 'That invite link is not valid'; end if;
+
+  if claim is not null then
+    -- lock the placeholder so two people can't claim it at the same moment
+    perform 1 from splitsy_profiles where id = claim for update;
+    if not exists (
+      select 1 from splitsy_profiles p join splitsy_members m on m.user_id = p.id
+      where p.id = claim and p.is_placeholder and m.group_id = gid
+    ) then
+      raise exception 'Someone already joined as that person';
+    end if;
+  end if;
+
+  insert into splitsy_members (group_id, user_id) values (gid, me) on conflict do nothing;
+  if claim is not null then perform splitsy_merge_profile(gid, claim, me); end if;
+  return gid;
+end $$;
+grant execute on function public.splitsy_join(text, uuid) to authenticated;
+
+-- Host only: someone joined without picking their placeholder ("I'm new here").
+-- Merge the placeholder into their real account afterwards.
+create or replace function public.splitsy_merge_placeholder(gid uuid, pid uuid, target uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from splitsy_groups where id = gid and created_by = auth.uid()) then
+    raise exception 'Only the group host can do this';
+  end if;
+  perform 1 from splitsy_profiles where id = pid for update;
+  if not exists (
+    select 1 from splitsy_profiles p join splitsy_members m on m.user_id = p.id
+    where p.id = pid and p.is_placeholder and m.group_id = gid
+  ) then raise exception 'That person already joined'; end if;
+  if not exists (
+    select 1 from splitsy_profiles p join splitsy_members m on m.user_id = p.id
+    where p.id = target and not p.is_placeholder and m.group_id = gid
+  ) then raise exception 'Pick someone who has joined this group'; end if;
+  perform splitsy_merge_profile(gid, pid, target);
+end $$;
+grant execute on function public.splitsy_merge_placeholder(uuid, uuid, uuid) to authenticated;
+
+-- Nobody can turn their own account into a placeholder (or fake who created one)
+-- from the app. Only the functions above set these columns.
+create or replace function public.splitsy_protect_profile()
+returns trigger language plpgsql as $$
+begin
+  if current_user in ('authenticated', 'anon') then
+    if tg_op = 'INSERT' then
+      new.is_placeholder := false;
+      new.created_by := null;
+    else
+      new.is_placeholder := old.is_placeholder;
+      new.created_by := old.created_by;
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists splitsy_profile_protect on public.splitsy_profiles;
+create trigger splitsy_profile_protect before insert or update on public.splitsy_profiles
+  for each row execute function public.splitsy_protect_profile();
+
+-- Profiles no longer cascade from auth.users (placeholders have no sign-in), so
+-- when an account is deleted, remove its profile too, unless it still appears in
+-- bills (then the name stays so the group's history still makes sense).
+create or replace function public.splitsy_handle_deleted_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  begin
+    delete from splitsy_profiles where id = old.id;
+  exception when foreign_key_violation then
+    delete from splitsy_push_subscriptions where user_id = old.id;
+  end;
+  return old;
+end $$;
+drop trigger if exists splitsy_on_auth_user_deleted on auth.users;
+create trigger splitsy_on_auth_user_deleted
+  after delete on auth.users for each row execute function public.splitsy_handle_deleted_user();
+
+-- Deleting a group also removes its placeholders
+create or replace function public.splitsy_cleanup_placeholders()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  delete from splitsy_expenses where group_id = old.id; -- bills first, so placeholders can be removed
+  delete from splitsy_profiles p using splitsy_members m
+  where m.group_id = old.id and m.user_id = p.id and p.is_placeholder;
+  return old;
+end $$;
+drop trigger if exists splitsy_group_cleanup on public.splitsy_groups;
+create trigger splitsy_group_cleanup before delete on public.splitsy_groups for each row execute function public.splitsy_cleanup_placeholders();
+
+-- Notifications skip placeholders (they can't sign in)
+create or replace function public.splitsy_notify_expense()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  actor text;
+  grp text;
+  cur text;
+  m record;
+  my_share numeric;
+  amt text;
+begin
+  select name into actor from splitsy_profiles where id = new.created_by;
+  select name, currency into grp, cur from splitsy_groups where id = new.group_id;
+  amt := cur || ' ' || to_char(new.amount, 'FM999,999,990.00');
+  for m in
+    select sm.user_id from splitsy_members sm join splitsy_profiles p on p.id = sm.user_id
+    where sm.group_id = new.group_id and sm.user_id <> new.created_by and not p.is_placeholder
+  loop
+    select coalesce(sum((s->>'amount')::numeric), 0) into my_share
+      from jsonb_array_elements(new.splits) s where s->>'user_id' = m.user_id::text;
+    insert into splitsy_notifications (user_id, actor_id, group_id, expense_id, kind, title, body, share)
+    values (
+      m.user_id, new.created_by, new.group_id, new.id, new.kind,
+      case when new.kind = 'settlement' then coalesce(actor, 'Someone') || ' settled up in ' || grp
+           else coalesce(actor, 'Someone') || ' added ' || new.title end,
+      case when new.kind = 'settlement' then new.title || ' · ' || amt
+           else amt || ' in ' || grp end,
+      nullif(my_share, 0)
+    );
+  end loop;
+  return new;
+end $$;
+
+-- Tell the API about the new columns/functions right away
+notify pgrst, 'reload schema';

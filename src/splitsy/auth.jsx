@@ -31,6 +31,9 @@ export function AuthProvider({ children }) {
 }
 
 const PENDING = 'splitsy:pendingJoin'
+const CLAIM = 'splitsy:pendingClaim'
+export const setPendingClaim = (id) => (id ? localStorage.setItem(CLAIM, id) : localStorage.removeItem(CLAIM))
+export const getPendingClaim = () => localStorage.getItem(CLAIM)
 export const setPendingJoin = (code) => localStorage.setItem(PENDING, code)
 export const takePendingJoin = () => {
   const c = localStorage.getItem(PENDING)

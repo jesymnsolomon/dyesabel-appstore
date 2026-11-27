@@ -52,7 +52,7 @@ export default function AvatarPicker({ value, onChange, user, size = 168, busy =
         <PhotoInput facing="user" onPick={pick} className="tap h-11 px-4 rounded-full bg-ink text-white font-bold text-[14px] flex items-center gap-2">
           <Icon name="camera" size={18} /> Take a selfie
         </PhotoInput>
-        <GalleryInput multiple={false} onPick={pick} className="tap h-11 px-4 rounded-full bg-white border-2 border-line font-bold text-[14px] flex items-center gap-2">
+        <GalleryInput multiple={false} onPick={pick} className="tap h-11 px-4 rounded-full bg-ink text-white font-bold text-[14px] flex items-center gap-2">
           <Icon name="upload" size={18} /> Upload photo
         </GalleryInput>
       </div>

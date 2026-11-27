@@ -512,7 +512,7 @@ function GroupDetail({ g, s, fm, onChanged, toast }) {
           <p className="font-bold text-[14px] text-red">Delete “{g.name}” for everyone?</p>
           <p className="text-[13px] font-semibold text-ink-soft mt-1">Its {g.txns} bills and all balances will be removed. This can’t be undone.</p>
           <div className="flex gap-2 mt-3">
-            <Button variant="soft" size="md" className="flex-1" onClick={() => setConfirm(false)}>Cancel</Button>
+            <Button variant="muted" size="md" className="flex-1" onClick={() => setConfirm(false)}>Cancel</Button>
             <Button variant="danger" size="md" className="flex-1 !bg-red !text-white" loading={busy} onClick={del}>Yes, delete</Button>
           </div>
         </div>

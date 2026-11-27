@@ -4,8 +4,28 @@ import { inviteCode, transactionRef, uuid } from './id'
 
 const T = { profiles: 'splitsy_profiles', groups: 'splitsy_groups', members: 'splitsy_members', expenses: 'splitsy_expenses' }
 
+// Profile fields we read. If the database hasn't been updated with the latest
+// schema.sql yet (no is_placeholder column), fall back to the older field list.
+let PROFILE_FIELDS = 'id,name,avatar_url,is_placeholder'
+const missingColumn = (error) => error && (error.code === '42703' || /is_placeholder/.test(error.message || ''))
+async function withProfiles(run) {
+  let res = await run(PROFILE_FIELDS)
+  if (missingColumn(res.error) && PROFILE_FIELDS.includes('is_placeholder')) {
+    PROFILE_FIELDS = 'id,name,avatar_url'
+    console.warn('Splitsy: run the latest supabase/schema.sql to enable placeholder members')
+    res = await run(PROFILE_FIELDS)
+  }
+  return res
+}
+
 function check({ data, error }) {
-  if (error) throw new Error(error.message)
+  if (error) {
+    // A database function the app needs isn't there yet (schema.sql not re-run)
+    if (error.code === 'PGRST202' || /could not find the function/i.test(error.message || '')) {
+      throw new Error('This needs the latest Splitsy database update. Run supabase/schema.sql in Supabase, then try again.')
+    }
+    throw new Error(error.message)
+  }
   return data
 }
 
@@ -93,7 +113,7 @@ export const cloudApi = {
   // ---------- groups ----------
   async listGroups() {
     const groups = check(
-      await supabase.from(T.groups).select('*, members:splitsy_members(user_id, profile:splitsy_profiles(id,name,avatar_url))').order('created_at', { ascending: false }),
+      await withProfiles((f) => supabase.from(T.groups).select(`*, members:splitsy_members(user_id, profile:splitsy_profiles(${f}))`).order('created_at', { ascending: false })),
     )
     if (!groups.length) return []
     const totals = check(
@@ -114,7 +134,7 @@ export const cloudApi = {
   async getGroup(id) {
     const group = check(await supabase.from(T.groups).select('*').eq('id', id).single())
     const rows = check(
-      await supabase.from(T.members).select('joined_at, profile:splitsy_profiles(id,name,avatar_url)').eq('group_id', id).order('joined_at'),
+      await withProfiles((f) => supabase.from(T.members).select(`joined_at, profile:splitsy_profiles(${f})`).eq('group_id', id).order('joined_at')),
     )
     return { ...group, members: rows.map((r) => r.profile).filter(Boolean) }
   },
@@ -122,8 +142,20 @@ export const cloudApi = {
     const rows = check(await supabase.rpc('splitsy_invite_preview', { code }))
     return rows?.[0] || null
   },
-  async joinGroup(code) {
-    return check(await supabase.rpc('splitsy_join', { code }))
+  async joinGroup(code, claim = null) {
+    // only send `claim` when picking a placeholder, so joining still works on an older database
+    return check(await supabase.rpc('splitsy_join', claim ? { code, claim } : { code }))
+  },
+  /** Host only: add someone who isn't on Splitsy yet. */
+  async addPlaceholder(groupId, name) {
+    return check(await supabase.rpc('splitsy_add_placeholder', { gid: groupId, pname: name }))
+  },
+  async removePlaceholder(groupId, placeholderId) {
+    check(await supabase.rpc('splitsy_remove_placeholder', { gid: groupId, pid: placeholderId }))
+  },
+  /** Host only: someone joined as new; move the placeholder's bills to their real account. */
+  async mergePlaceholder(groupId, placeholderId, memberId) {
+    check(await supabase.rpc('splitsy_merge_placeholder', { gid: groupId, pid: placeholderId, target: memberId }))
   },
   /** Only the group's creator can do this (enforced by the database). */
   async deleteGroup(groupId) {
@@ -152,6 +184,9 @@ export const cloudApi = {
     const saved = check(await supabase.from(T.expenses).insert(row).select().single())
     cloudApi.sendPush(saved.id) // phone notifications for the rest of the group (best effort)
     return saved
+  },
+  async updateExpense(id, patch) {
+    return check(await supabase.from(T.expenses).update(patch).eq('id', id).select().single())
   },
   async addPhotos(expense, files) {
     const photos = [...(expense.photos || [])]
@@ -216,13 +251,15 @@ export const cloudApi = {
       }
       return rows
     }
-    const [users, groups, members, expenses] = await Promise.all([
+    const [users, placeholders, groups, members, expenses] = await Promise.all([
       supabase.rpc('splitsy_admin_users').then(check),
+      // people added by hosts who haven't joined yet (not real accounts, so not in `users`)
+      supabase.from(T.profiles).select('id,name,avatar_url,is_placeholder').eq('is_placeholder', true).then(({ data }) => data || []),
       fetchAll(T.groups, '*'),
       fetchAll(T.members, 'group_id, user_id, joined_at', 'joined_at'),
       fetchAll(T.expenses, 'id, ref, group_id, kind, title, category, amount, paid_by, created_by, payment_method, channel, place_name, original_currency, original_amount, items, photos, created_at'),
     ])
-    return { users, groups, members, expenses }
+    return { users, placeholders, groups, members, expenses }
   },
   async adminDeleteGroup(id) {
     check(await supabase.from(T.groups).delete().eq('id', id))

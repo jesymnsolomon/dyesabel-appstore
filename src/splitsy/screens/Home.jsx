@@ -75,7 +75,7 @@ export default function Home() {
           </p>
           <div className="mt-2 relative"><CurrencyChip code={currency} dark onClick={() => setCurPicker(true)} /></div>
           <div className="flex gap-2 mt-4 relative">
-            <button onClick={() => navigate('/new-group')} className="tap h-11 px-4 rounded-full bg-white text-ink font-bold text-[14px] flex items-center gap-1.5">
+            <button onClick={() => navigate('/new-group')} className="tap h-11 px-4 rounded-full bg-ink text-white font-bold text-[14px] flex items-center gap-1.5">
               <Icon name="plus" size={18} /> New group
             </button>
             <button onClick={() => setJoinOpen(true)} className="tap h-11 px-4 rounded-full bg-white/25 text-white font-bold text-[14px] flex items-center gap-1.5 backdrop-blur">
